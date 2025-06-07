@@ -88,7 +88,7 @@ const Chat: React.FC = () => {
       const formData = new FormData();
       formData.append('pdf', file);
       try {
-        const response = await fetch('http://localhost:5050/api/upload', {
+        const response = await fetch(process.env.REACT_APP_SERVER_URL + '/api/upload', {
           method: 'POST',
           body: formData
         });
