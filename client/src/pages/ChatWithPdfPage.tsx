@@ -4,25 +4,79 @@ import { io } from "socket.io-client"; // Import io
 import { Socket } from 'socket.io-client'; // Import Socket type
 import { Message } from '../types'; // Import Message type
 import * as pdfjs from 'pdfjs-dist';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 // Serve the worker script from the Node.js server using the environment variable
 pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.REACT_APP_SERVER_URL}/pdfjs-worker.js`;
 
 // Add this helper function before the component
 function formatPageText(text: string): string {
-  // Split into paragraphs (double newlines)
-  const paragraphs = text.split(/\n\n+/);
+  let formattedText = text;
+
+  // 1. Normalize all whitespace characters (including non-breaking spaces, tabs, etc.) to single spaces
+  formattedText = formattedText.replace(/[\s\u00A0]+/g, ' ');
+
+  // 2. Add space between concatenated words/numbers
+  formattedText = formattedText.replace(/([a-z])([A-Z])/g, '$1 $2'); // lowercase then uppercase
+  formattedText = formattedText.replace(/([a-zA-Z])(\d)/g, '$1 $2'); // letter then digit
+  formattedText = formattedText.replace(/(\d)([a-zA-Z])/g, '$1 $2'); // digit then letter
+
+  // 3. Ensure correct spacing around punctuation marks (.,!?;:)
+  // Remove any space immediately before punctuation
+  formattedText = formattedText.replace(/\s*([.,!?;:])/g, '$1');
+  // Ensure one space immediately after punctuation if not followed by another punctuation mark or end of string/newline
+  formattedText = formattedText.replace(/([.,!?;:])(?![.,!?;:\s]|$)/g, '$1 ');
+
+  // 4. Handle hyphens - keeping existing hyphenated words together and fixing common hyphen spacing issues
+  formattedText = formattedText.replace(/(\S)-(\S)/g, '$1-$2'); // Keeps 'word-word'
+  formattedText = formattedText.replace(/\s-\s/g, '-'); // 'word - word' -> 'word-word'
+  formattedText = formattedText.replace(/(\s|^)-(\S)/g, '$1-$2'); // ' -word' -> '-word' (handles start of line)
+  formattedText = formattedText.replace(/(\S)-(\s|$)/g, '$1-$2'); // 'word- ' -> 'word-' (handles end of line)
+
+  // 5. Final pass to replace any remaining multiple spaces with a single space
+  formattedText = formattedText.replace(/\s+/g, ' ');
+
+  // 6. Trim leading/trailing spaces from the whole text before paragraph splitting
+  formattedText = formattedText.trim();
+
+  // Split into paragraphs (double newlines or form feed)
+  const paragraphs = formattedText.split(/\n\n+|\f/);
   
   // Format each paragraph
   return paragraphs
     .map(paragraph => {
-      // Capitalize first letter of each sentence
-      const sentences = paragraph.split(/(?<=[.!?])\s+/);
+      let trimmedParagraph = paragraph.trim(); // Trim each paragraph
+
+      // Capitalize first letter of each sentence and ensure single space after punctuation
+      const sentences = trimmedParagraph.split(/(?<=[.!?])\s*/); // Split by punctuation followed by optional space
       return sentences
-        .map(sentence => sentence.charAt(0).toUpperCase() + sentence.slice(1))
-        .join(' ');
+        .map(sentence => {
+          let s = sentence.trim(); // Trim individual sentences
+          if (s.length > 0) {
+            return s.charAt(0).toUpperCase() + s.slice(1); // Capitalize first letter
+          }
+          return s;
+        })
+        .join(' ') // Join sentences with a single space
+        .replace(/\s+/g, ' '); // Replace multiple spaces with a single space again
     })
-    .join('\n\n');
+    .filter(p => p.length > 0) // Remove empty paragraphs
+    .join('\n\n'); // Join paragraphs with double newlines
+}
+
+// Add a helper function to format AI notes for better readability
+function formatAiNotes(text: string): string {
+  // Replace multiple newlines with a single newline to ensure proper paragraphs
+  let formatted = text.replace(/\n{3,}/g, '\n\n');
+  // Ensure proper spacing after periods and other punctuation
+  formatted = formatted.replace(/\.([A-Z])/g, '. $1');
+  formatted = formatted.replace(/([.,!?;:])(\S)/g, '$1 $2'); // Add space after punctuation if not already there
+  // Trim whitespace from each line and re-join
+  formatted = formatted.split('\n').map(line => line.trim()).join('\n');
+  // Remove empty lines at the start and end of the whole text
+  formatted = formatted.trim();
+  return formatted;
 }
 
 const ChatWithPdfPage: React.FC = () => {
@@ -62,6 +116,10 @@ const ChatWithPdfPage: React.FC = () => {
 
   // State for text-to-speech
   const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // State for voice chat
+  const [isVoiceChatActive, setIsVoiceChatActive] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   // Effect to segment the extracted text into pages (simple approach)
   useEffect(() => {
@@ -110,6 +168,50 @@ const ChatWithPdfPage: React.FC = () => {
 
     generateNotes();
   }, [extractedText]); // Generate notes when extractedText changes
+
+  // Setup SpeechRecognition for voice chat
+  useEffect(() => {
+    if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const recognition = new SpeechRecognition();
+
+      recognition.continuous = false; // Listen for a single utterance
+      recognition.interimResults = false; // Don't show interim results
+      recognition.lang = 'en-US'; // Set language
+
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const transcript = event.results[0][0].transcript;
+        setNewMessage(transcript); // Set the transcribed text to the input field
+        // Optionally, automatically send the message after transcription
+        // handleSubmit({ preventDefault: () => {} } as React.FormEvent);
+      };
+
+      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+        console.error('Speech recognition error:', event.error);
+        setIsVoiceChatActive(false);
+      };
+
+      recognition.onend = () => {
+        // Only set to false if not explicitly starting again (e.g., in continuous mode)
+        if (isVoiceChatActive) { // Keep active if continuous or awaiting next command
+          // For now, turn off after single utterance. Will improve later for continuous.
+          setIsVoiceChatActive(false);
+        }
+      };
+
+      recognitionRef.current = recognition;
+    } else {
+      console.warn('Speech Recognition not supported in this browser.');
+      // Optionally, disable the voice chat button or show a message
+    }
+
+    // Cleanup
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, [isVoiceChatActive]); // Re-run effect if isVoiceChatActive changes to manage recognition lifecycle
 
   // Socket connection and event listeners (Moved from Chat.tsx)
   useEffect(() => {
@@ -238,6 +340,23 @@ const ChatWithPdfPage: React.FC = () => {
     }
   };
 
+  // Handle voice chat toggle
+  const handleToggleVoiceChat = () => {
+    if (isVoiceChatActive) {
+      recognitionRef.current?.stop();
+      setIsVoiceChatActive(false);
+    } else {
+      // Before starting, ensure any ongoing speech is stopped
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        setIsSpeaking(false);
+      }
+      recognitionRef.current?.start();
+      setIsVoiceChatActive(true);
+      setNewMessage(''); // Clear input when starting voice chat
+    }
+  };
+
   // Handle sending messages (Modified to include extractedText context)
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -309,7 +428,7 @@ const ChatWithPdfPage: React.FC = () => {
              <div className="text-sm text-gray-500">No PDF selected.</div>
           )}
           {/* PDF Preview Area */}
-          <div className="mt-4 flex justify-center flex-col items-center bg-gray-800 p-4 rounded-lg">
+          <div className="mt-4 flex justify-center flex-col items-center bg-gray-800 p-4 rounded-lg relative overflow-hidden">
             {/* Loading/Placeholder state */}
             {pdfFileName && pageTexts.length === 0 && (
                 <div className="text-sm text-gray-500 mb-4">Loading PDF preview...</div>
@@ -332,7 +451,7 @@ const ChatWithPdfPage: React.FC = () => {
              {pageTexts.length > 0 && (
                  <button
                      onClick={handleSpeakPage}
-                     className={`ml-4 p-1 rounded-full transition-colors ${isSpeaking ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
+                     className={`absolute bottom-4 left-1/2 -translate-x-1/2 p-3 rounded-full transition-colors ${isSpeaking ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white shadow-lg`}
                      aria-label={isSpeaking ? 'Stop speaking' : 'Speak page'}
                  >
                      {isSpeaking ? (
@@ -374,8 +493,13 @@ const ChatWithPdfPage: React.FC = () => {
                        : 'bg-white text-gray-800'
                    }`}
                  >
-                   <div className="font-semibold">{message.sender}</div>
-                   <div>{message.text}</div>
+                   <div className="font-semibold">{message.isAI ? 'Docuchat' : message.sender}</div>
+                   {/* Render message.text using ReactMarkdown if it's an AI message */}
+                   {message.isAI ? (
+                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.text}</ReactMarkdown>
+                   ) : (
+                     <div>{message.text}</div>
+                   )}
                    <div className="text-xs opacity-75 mt-1">
                      {new Date(message.timestamp).toLocaleTimeString()}
                    </div>
@@ -386,7 +510,7 @@ const ChatWithPdfPage: React.FC = () => {
              {isLoading && (
                <div className="flex justify-start">
                  <div className="bg-purple-100 text-gray-800 rounded-lg p-3 border border-purple-200">
-                   <div className="font-semibold">AI Assistant</div>
+                   <div className="font-semibold">Docuchat</div>
                    <div className="flex space-x-2">
                      <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" />
                      <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce delay-100" />
@@ -407,8 +531,32 @@ const ChatWithPdfPage: React.FC = () => {
                 onChange={(e) => setNewMessage(e.target.value)}
                 placeholder={`Ask a question about ${pdfFileName || 'the PDF'}...`}
                 className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={isLoading}
+                disabled={isLoading || isVoiceChatActive}
               />
+              <button
+                type="button"
+                onClick={handleToggleVoiceChat}
+                className={`p-2 rounded-lg transition-colors ${isVoiceChatActive ? 'bg-red-500 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+                aria-label={isVoiceChatActive ? 'Stop voice chat' : 'Start voice chat'}
+                title={isVoiceChatActive ? 'Stop Voice Chat' : 'Start Voice Chat'}
+              >
+                {/* Sound wave icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                  {isVoiceChatActive ? (
+                    // Animated sound wave bars when active
+                    <g className="voice-wave-animation">
+                      <rect x="3" y="10" width="2" height="4" rx="1" className="fill-current" />
+                      <rect x="7" y="8" width="2" height="8" rx="1" className="fill-current" />
+                      <rect x="11" y="6" width="2" height="12" rx="1" className="fill-current" />
+                      <rect x="15" y="8" width="2" height="8" rx="1" className="fill-current" />
+                      <rect x="19" y="10" width="2" height="4" rx="1" className="fill-current" />
+                    </g>
+                  ) : (
+                    // Static microphone icon when inactive
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 6a6 6 0 0 1-6-6v-1.5m6 6v3.75m-3.75 0h7.5M12 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+                  )}
+                </svg>
+              </button>
               {/* Paperclip/Upload button is on the Home page now */}
               <button
                 type="submit"
@@ -489,11 +637,19 @@ const ChatWithPdfPage: React.FC = () => {
           )}
 
           {activeTab === 'notes' && (
-            <div className="text-sm text-gray-800 overflow-y-auto flex-1">
+            <div className="text-sm text-gray-800 overflow-y-auto flex-1 p-4 bg-gray-50 rounded-lg shadow-inner border border-gray-200">
               {loadingNotes && <div className="text-sm text-gray-500">Generating AI notes...</div>}
               {notesError && <div className="text-sm text-red-600">Error: {notesError}</div>}
               {aiNotes && !loadingNotes && !notesError && (
-                <div className="text-sm text-gray-800 break-words whitespace-pre-wrap">{aiNotes}</div>
+                <div className="prose prose-sm max-w-none space-y-4">
+                  {formatAiNotes(aiNotes)
+                    .split('\n\n')
+                    .map((paragraph, index) => (
+                      <p key={index} className="leading-relaxed">
+                        {paragraph}
+                      </p>
+                    ))}
+                </div>
               )}
               {!aiNotes && !loadingNotes && !notesError && extractedText && (
                 <div className="text-sm text-gray-500">AI-generated notes will appear here after generation.</div>

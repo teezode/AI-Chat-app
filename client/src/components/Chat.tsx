@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { io } from "socket.io-client";
 import { Socket } from 'socket.io-client';
 import { Message } from '../types';
+import { ArrowUpOnSquareIcon } from '@heroicons/react/24/outline'; // Assuming Heroicons is installed
+import { useNavigate } from 'react-router-dom';
 
 const Chat: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -20,7 +22,7 @@ const Chat: React.FC = () => {
 
   useEffect(() => {
     // Connect to WebSocket server
-    const socket = io('http://localhost:5050');
+    const socket = io(process.env.REACT_APP_SERVER_URL || 'http://localhost:5000');
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -59,14 +61,12 @@ const Chat: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !username || isLoading) return;
+    const currentUser = "User"; // Placeholder, replace with actual username logic
+
+    if (!newMessage.trim() || isLoading || !currentUser) return;
 
     setIsLoading(true);
-    socketRef.current?.emit('message', {
-      text: newMessage,
-      sender: username
-    });
-
+    socketRef.current?.emit('message', { text: newMessage, sender: currentUser });
     setNewMessage('');
   };
 
@@ -186,7 +186,7 @@ const Chat: React.FC = () => {
                       : 'bg-white text-gray-800'
                   }`}
                 >
-                  <div className="font-semibold">{message.sender}</div>
+                  <div className="font-semibold">{message.isAI ? 'Docuchat' : message.sender}</div>
                   <div>{message.text}</div>
                   <div className="text-xs opacity-75 mt-1">
                     {new Date(message.timestamp).toLocaleTimeString()}
@@ -197,7 +197,7 @@ const Chat: React.FC = () => {
             {isLoading && (
               <div className="flex justify-start">
                 <div className="bg-purple-100 text-gray-800 rounded-lg p-3 border border-purple-200">
-                  <div className="font-semibold">AI Assistant</div>
+                  <div className="font-semibold">Docuchat</div>
                   <div className="flex space-x-2">
                     <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" />
                     <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce delay-100" />

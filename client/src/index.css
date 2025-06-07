@@ -15,3 +15,48 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+/* Add custom animations for voice wave */
+@keyframes wave-animation {
+  0%, 100% {
+    height: 4px;
+    transform: translateY(0px);
+  }
+  25% {
+    height: 8px;
+    transform: translateY(-2px);
+  }
+  50% {
+    height: 12px;
+    transform: translateY(-4px);
+  }
+  75% {
+    height: 8px;
+    transform: translateY(-2px);
+  }
+}
+
+.voice-wave-animation rect {
+  animation: wave-animation 1.2s infinite ease-in-out;
+  transform-origin: bottom;
+}
+
+.voice-wave-animation rect:nth-child(1) {
+  animation-delay: 0s;
+}
+
+.voice-wave-animation rect:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.voice-wave-animation rect:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+.voice-wave-animation rect:nth-child(4) {
+  animation-delay: 0.6s;
+}
+
+.voice-wave-animation rect:nth-child(5) {
+  animation-delay: 0.8s;
+}

@@ -47,7 +47,8 @@ const io = new Server(httpServer, {
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // Configure session middleware (required for Passport)
 app.use(session({
@@ -138,22 +139,52 @@ const upload = multer({ storage: storage });
 
 // Add this helper function before the routes
 function formatExtractedText(text: string): string {
-  // Replace multiple newlines with a single newline
-  let formatted = text.replace(/\n{3,}/g, '\n\n');
+  let formatted = text;
+
+  // NEW STEP 0: Remove any residual '__PARA_BREAK__' from previous processing if it exists in raw text.
+  formatted = formatted.replace(/__PARA_BREAK__/g, ' ');
+
+  // Step 1: Normalize all hyphen-like characters to a standard hyphen.
+  formatted = formatted.replace(/[‐‑‒–—―]/g, '-');
+
+  // Step 2: Aggressively remove all hyphens as they are likely artifacts from PDF extraction.
+  formatted = formatted.replace(/-/g, '');
+
+  // Step 3: Normalize non-breaking spaces to regular spaces.
+  formatted = formatted.replace(/\xA0/g, ' ');
+
+  // Step 4: Standardize paragraph breaks: replace 2 or more newlines directly with two newlines.
+  formatted = formatted.replace(/\n{2,}/g, '\n\n');
+
+  // Step 5: Replace any remaining single newlines with a space (these are likely soft wraps within a paragraph).
+  formatted = formatted.replace(/\n/g, ' ');
+
+  // Step 6: Aggressive Space Insertion for Word Boundaries.
+  // a. CamelCase/PascalCase: Insert space between a lowercase letter and an uppercase letter
+  formatted = formatted.replace(/([a-z])([A-Z])/g, '$1 $2');
+  // b. Acronym to Word: Insert space between an uppercase letter followed by another uppercase and then a lowercase
+  formatted = formatted.replace(/([A-Z])([A-Z][a-z])/g, '$1 $2');
+  // c. Letter-Number Transitions: Insert space between a letter and a number
+  formatted = formatted.replace(/([a-zA-Z])([0-9])/g, '$1 $2');
+  // d. Number-Letter Transitions: Insert space between a number and a letter
+  formatted = formatted.replace(/([0-9])([a-zA-Z])/g, '$1 $2');
+  // e. General PascalCase Split: Insert space before a capital letter if not at start and preceded by non-space, non-number, non-uppercase
+  formatted = formatted.replace(/([^\s0-9A-Z])([A-Z])/g, '$1 $2');
+
+  // Step 7: Normalize all whitespace: replace any sequence of two or more spaces with a single regular space.
+  // This includes any extra spaces introduced by previous steps.
+  formatted = formatted.replace(/ {2,}/g, ' ');
+
+  // Step 8: Punctuation Spacing: Ensure no space before punctuation and a single space after, unless at end of string.
+  formatted = formatted.replace(/\s*([.,!?;:])\s*/g, '$1'); 
+  formatted = formatted.replace(/([.,!?;:])(?![\s\n]|$)/g, '$1 ');
+  formatted = formatted.replace(/\s*([()])\s*/g, ' $1 ');
+
+  // Step 9: Remove non-printable characters, keeping valid text characters, spaces, and newlines.
+  formatted = formatted.replace(/[^\x20-\x7E\n ]/g, '');
   
-  // Replace multiple spaces with a single space
-  formatted = formatted.replace(/[ \t]{2,}/g, ' ');
-  
-  // Add proper spacing after periods that are followed by a capital letter
-  formatted = formatted.replace(/\.([A-Z])/g, '. $1');
-  
-  // Remove any non-printable characters except newlines
-  formatted = formatted.replace(/[^\x20-\x7E\n]/g, '');
-  
-  // Trim whitespace from each line
+  // Step 10: Final trimming of each line and the whole text.
   formatted = formatted.split('\n').map(line => line.trim()).join('\n');
-  
-  // Remove empty lines at the start and end
   formatted = formatted.trim();
   
   return formatted;
@@ -171,7 +202,9 @@ app.post('/api/upload', upload.single('pdf'), async (req: Request, res: Response
   }
   try {
     const data = await pdfParse(file.path);
+    console.log('Raw extracted text (upload):', data.text.substring(0, 500) + '...'); // Log first 500 chars
     const extractedText = formatExtractedText(data.text);
+    console.log('Formatted extracted text (upload):', extractedText.substring(0, 500) + '...'); // Log first 500 chars
     res.json({ 
       message: 'PDF uploaded and text extracted successfully', 
       extractedText: extractedText, 
@@ -266,7 +299,9 @@ app.get('/api/extracted-text/:filename', async (req: Request, res: Response) => 
   try {
     const fileBuffer = await fs.promises.readFile(filePath);
     const data = await pdfParse(fileBuffer);
+    console.log('Raw extracted text (fetch):', data.text.substring(0, 500) + '...'); // Log first 500 chars
     const extractedText = formatExtractedText(data.text);
+    console.log('Formatted extracted text (fetch):', extractedText.substring(0, 500) + '...'); // Log first 500 chars
     res.json({ extractedText: extractedText });
   } catch (err) {
     console.error('Error extracting PDF text:', err);

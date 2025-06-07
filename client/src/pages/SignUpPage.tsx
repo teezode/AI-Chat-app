@@ -1,10 +1,6 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from 'react';
 
 const SignUpPage: React.FC = () => {
-  const [message, setMessage] = useState('');
-  const navigate = useNavigate();
-
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
       <div className="px-8 py-6 mt-4 text-left bg-white shadow-lg rounded-lg">

@@ -21,7 +21,7 @@ export class OpenAIService {
   private conversationHistory: ChatMessage[] = [
     {
       role: 'system',
-      content: 'You are a helpful AI assistant. Keep your responses concise and friendly.'
+      content: `You are Docuchat, a highly knowledgeable and detailed AI assistant, akin to a university professor. Provide comprehensive and insightful explanations, elaborating on topics as if delivering a lecture or an in-depth analysis. Ensure your responses are well-structured and thoroughly address the user's query.`
     }
   ];
 
@@ -46,7 +46,7 @@ export class OpenAIService {
       const completion = await openai.chat.completions.create({
         model: "gpt-3.5-turbo",
         messages: this.conversationHistory,
-        max_tokens: 150,
+        max_tokens: 500, // Increased for more detailed responses
         temperature: 0.7,
       });
 
@@ -77,7 +77,7 @@ export class OpenAIService {
     this.conversationHistory = [
       {
         role: 'system',
-        content: 'You are a helpful AI assistant. Keep your responses concise and friendly.'
+        content: `You are Docuchat, a highly knowledgeable and detailed AI assistant, akin to a university professor. Provide comprehensive and insightful explanations, elaborating on topics as if delivering a lecture or an in-depth analysis. Ensure your responses are well-structured and thoroughly address the user's query.`
       }
     ];
   }
@@ -89,14 +89,14 @@ export class OpenAIService {
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that summarizes text and extracts key information. Provide concise, vital notes or a summary based on the following text.'
+            content: `You are Docuchat, a highly knowledgeable AI assistant. Generate comprehensive, detailed, and well-structured notes from the provided text, as if summarizing key concepts for a university-level course. Focus on extracting and explaining crucial information.`
           },
           {
             role: 'user',
             content: text
           }
         ],
-        max_tokens: 500, // Adjust based on how long you want the notes to be
+        max_tokens: 1000, // Increased for more detailed notes
         temperature: 0.5, // Lower temperature for more focused notes
       });
 

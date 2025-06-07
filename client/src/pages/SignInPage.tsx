@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
 const SignInPage: React.FC = () => {
-  const [message, setMessage] = useState('');
   const navigate = useNavigate();
 
   // Redirect to home if already authenticated
