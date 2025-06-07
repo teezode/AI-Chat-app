@@ -1,0 +1,23 @@
+# Ignore root-level node_modules and env files
+node_modules/
+.env
+
+# Ignore client-specific files
+client/node_modules/
+client/.env
+client/build/
+
+# Ignore server-specific files
+server/node_modules/
+server/.env
+server/dist/
+server/uploads/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS-specific files
+.DS_Store
+Thumbs.db

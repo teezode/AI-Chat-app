@@ -1,0 +1,31 @@
+{
+  "name": "ai-chat-app",
+  "version": "1.0.0",
+  "description": "A modern AI chat application",
+  "main": "index.js",
+  "scripts": {
+    "client": "cd client && npm start",
+    "server": "cd server && npm run dev",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "install-all": "npm install && cd client && npm install && cd ../server && npm install",
+    "test": "concurrently \"cd client && npm test\" \"cd server && npm test\"",
+    "test:client": "cd client && npm test",
+    "test:server": "cd server && npm test"
+  },
+  "keywords": [
+    "chat",
+    "ai",
+    "react",
+    "node",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "multer": "^2.0.0",
+    "pdfjs-dist": "^4.8.69"
+  }
+}

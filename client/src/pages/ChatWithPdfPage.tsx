@@ -1,0 +1,476 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
+import { io } from "socket.io-client"; // Import io
+import { Socket } from 'socket.io-client'; // Import Socket type
+import { Message } from '../types'; // Import Message type
+import * as pdfjs from 'pdfjs-dist';
+
+// Serve the worker script from the Node.js server
+pdfjs.GlobalWorkerOptions.workerSrc = 'http://localhost:5050/pdfjs-worker.js';
+
+const ChatWithPdfPage: React.FC = () => {
+  const location = useLocation();
+  // Ensure we handle cases where state might be missing on direct access
+  const { extractedText, pdfFileName } = (location.state as { extractedText: string; pdfFileName: string }) || {};
+
+  // State for chat messages (Moved from Chat.tsx)
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Refs and state related to socket connection (Moved from Chat.tsx)
+  const socketRef = useRef<Socket | null>(null);
+  const [isConnected, setIsConnected] = useState(false);
+
+  // Ref for PDF preview canvas
+  // The pdfjs document object is handled locally within the useEffect
+  const pdfCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // State for active tab in the right column
+  const [activeTab, setActiveTab] = useState('extracted'); // 'extracted' or 'notes'
+
+  // State for extracted text segmented by pages and current page index
+  const [pageTexts, setPageTexts] = useState<string[]>([]);
+  const [currentPageIndex, setCurrentPageIndex] = useState(0);
+
+  // State for AI-generated notes and loading status
+  const [aiNotes, setAiNotes] = useState<string | null>(null);
+  const [loadingNotes, setLoadingNotes] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+
+  // State for PDF preview page navigation
+  const [pdfNumPages, setPdfNumPages] = useState(0);
+  const [currentPreviewPage, setCurrentPreviewPage] = useState(1); // 1-indexed for display
+
+  // State for text-to-speech
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  // Effect to segment the extracted text into pages (simple approach)
+  useEffect(() => {
+    if (extractedText) {
+      // Basic segmentation: Split by a reasonable marker like form feed character or a large number of newlines
+      // A more robust solution would require server-side page-by-page extraction or more advanced client logic.
+      const segments = extractedText.split(/\f|\n{10,}/); // Split by form feed or 10+ newlines
+      setPageTexts(segments);
+      setCurrentPageIndex(0); // Reset to first page on new text
+    } else {
+       setPageTexts([]);
+       setCurrentPageIndex(0);
+    }
+  }, [extractedText]); // Re-segment if extractedText changes
+
+  // Effect to generate AI notes when extractedText is available
+  useEffect(() => {
+    const generateNotes = async () => {
+      if (!extractedText) return;
+
+      setLoadingNotes(true);
+      setNotesError(null);
+      try {
+        const response = await fetch('http://localhost:5050/api/generate-notes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ extractedText }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+        setAiNotes(data.notes);
+      } catch (error) {
+        console.error('Error generating AI notes:', error);
+        setNotesError('Failed to generate AI notes.');
+        setAiNotes(null); // Clear previous notes on error
+      } finally {
+        setLoadingNotes(false);
+      }
+    };
+
+    generateNotes();
+  }, [extractedText]); // Generate notes when extractedText changes
+
+  // Socket connection and event listeners (Moved from Chat.tsx)
+  useEffect(() => {
+    // Connect to WebSocket server
+    const socket = io('http://localhost:5050');
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      setIsConnected(true);
+    });
+
+    socket.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    socket.on('messages', (initialMessages: Message[]) => {
+      setMessages(initialMessages);
+    });
+
+    socket.on('message', (message: Message) => {
+      setMessages(prev => [...prev, message]);
+      if (message.isAI) {
+        setIsLoading(false);
+      }
+    });
+
+    socket.on('error', (error: { message: string }) => {
+      console.error('Socket error:', error);
+      setIsLoading(false);
+    });
+
+    // Clean up socket connection
+    return () => {
+      socket.disconnect();
+    };
+  }, []); // Empty dependency array means this runs once on mount
+
+  useEffect(() => {
+    // Scroll to bottom when new messages arrive
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  // Effect to fetch and render PDF preview
+  useEffect(() => {
+    const loadPdfPreview = async () => {
+      if (!pdfFileName) return;
+
+      try {
+        // Fetch the PDF from the server for preview rendering
+        const response = await fetch(`http://localhost:5050/api/pdf/${encodeURIComponent(pdfFileName)}`);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const arrayBuffer = await response.arrayBuffer();
+
+        // Load the PDF document
+        const loadingTask = pdfjs.getDocument(arrayBuffer);
+        const pdf = await loadingTask.promise;
+        setPdfNumPages(pdf.numPages); // Set total number of pages
+
+        // Render the current preview page
+        if (pdfCanvasRef.current && pdf.numPages > 0 && currentPreviewPage > 0 && currentPreviewPage <= pdf.numPages) {
+          const page = await pdf.getPage(currentPreviewPage); // Render the current preview page
+          const viewport = page.getViewport({ scale: 1.0 }); // Initial viewport at scale 1.0
+          const canvas = pdfCanvasRef.current;
+          const canvasContext = canvas.getContext('2d');
+          if (canvasContext) {
+            // Calculate scale to fit within the container width
+            const containerWidth = canvas.parentElement?.offsetWidth || viewport.width;
+            const scale = Math.min(containerWidth / viewport.width, 1.0);
+            const scaledViewport = page.getViewport({ scale: scale });
+
+            canvas.height = scaledViewport.height;
+            canvas.width = scaledViewport.width;
+
+            const renderContext = {
+              canvasContext,
+              viewport: scaledViewport,
+            };
+            await page.render(renderContext).promise;
+          }
+        } else if (pdfCanvasRef.current) {
+          // Clear canvas if no pages or invalid page number
+          const canvasContext = pdfCanvasRef.current.getContext('2d');
+          if (canvasContext) {
+            canvasContext.clearRect(0, 0, pdfCanvasRef.current.width, pdfCanvasRef.current.height);
+          }
+        }
+
+      } catch (error) {
+        console.error('Error loading or rendering PDF preview:', error);
+        // You might want to update a state to show an error message to the user
+      }
+    };
+
+    loadPdfPreview();
+  }, [pdfFileName, currentPreviewPage]); // Rerun effect if pdfFileName or currentPreviewPage changes
+
+  // Effect to stop speech if preview page changes or PDF changes
+  useEffect(() => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    }
+  }, [currentPreviewPage, pdfFileName, isSpeaking]); // Added isSpeaking dependency
+
+  // Handle text-to-speech play button click
+  const handleSpeakPage = () => {
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+    } else {
+      const pageTextToSpeak = pageTexts[currentPreviewPage - 1]; // Get text for the current preview page (0-indexed array)
+      if (pageTextToSpeak) {
+        const utterance = new SpeechSynthesisUtterance(pageTextToSpeak);
+        utterance.onend = () => {
+          setIsSpeaking(false);
+        };
+        utterance.onerror = (event) => {
+          console.error('Speech synthesis error:', event);
+          setIsSpeaking(false);
+        };
+        window.speechSynthesis.speak(utterance);
+        setIsSpeaking(true);
+      }
+    }
+  };
+
+  // Handle sending messages (Modified to include extractedText context)
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    // We need a username, but for this page, maybe the user is determined differently or hardcoded initially.
+    // Assuming username logic is handled elsewhere or we use a default.
+    const currentUser = "User"; // Placeholder, replace with actual username logic
+
+    if (!newMessage.trim() || isLoading || !currentUser) return;
+
+    setIsLoading(true);
+    // Emit message via socket, including the text of the current page for context
+    const messagePayload = {
+        text: pageTexts[currentPageIndex] ? `${pageTexts[currentPageIndex].substring(0, 4000)}\n\nUser: ${newMessage}` : newMessage, // Limit context size
+          sender: currentUser
+      };
+      socketRef.current?.emit('message', messagePayload);
+
+    setNewMessage('');
+  };
+
+  return (
+    <div className="flex flex-col h-screen bg-gray-100">
+      {/* Header (NavBar is already included in App.tsx) */}
+      <div className="bg-white shadow-md p-4 flex justify-between items-center">
+         <h1 className="text-2xl font-bold text-gray-800">Chatting with: {pdfFileName || 'Uploaded PDF'}</h1>
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm text-gray-600">
+              {isConnected ? 'Connected' : 'Disconnected'}
+            </span>
+          </div>
+      </div>
+
+      {/* Main content area with three columns */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Left Column: PDF Info/Preview */}
+        <div className="w-1/4 p-4 bg-white border-r overflow-y-auto flex flex-col">
+          <h2 className="text-lg font-semibold mb-4">PDF Info</h2>
+          {pdfFileName ? (
+            <div className="text-sm text-gray-800 break-words mb-4">File: {pdfFileName}</div>
+          ) : (
+             <div className="text-sm text-gray-500">No PDF selected.</div>
+          )}
+          {/* PDF Preview Area */}
+          <div className="mt-4 flex justify-center flex-col items-center bg-gray-800 p-4 rounded-lg">
+            {/* Loading/Placeholder state */}
+            {pdfFileName && pageTexts.length === 0 && (
+                <div className="text-sm text-gray-500 mb-4">Loading PDF preview...</div>
+            )}
+            {!pdfFileName && (
+                 <div className="text-sm text-gray-500 mb-4">No PDF selected.</div>
+            )}
+             {/* Placeholder icon if no PDF or loading */}
+            {(!pdfFileName || pageTexts.length === 0) && (
+                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-gray-600 mb-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 1 0-3.375 3.375h.273a2.5 2.5 0 0 1 2.5 2.5v.375m-12 0h-.083a2.5 2.5 0 0 1-2.5-2.5V9.75m2.25-3
+                    .375a3.375 3.375 0 1 1 3.375 3.375H9.375A2.5 2.5 0 0 0 6.875 10.5v-.375m9 4.5a3.375 3.375 0 1 1 3.375 3.375h-.273a2.5 2.5 0 0 0-2.5-2.5v-.375M19.5 9.75h-.375a2.5 2.5 0 0 0-2.5 2.5v.375m0 4.5h.375a2.5 2.5 0 0 0 2.5-2.5v-.375m-12 3a3.375 3.375 0 1 1 3.375 3.375H8.25a2.5 2.5 0 0 0-2.5-2.5v-.375m0-4.5H6.375a2.5 2.5 0 0 0-2.5 2.5v.375" />
+                 </svg>
+            )}
+
+            {/* Canvas for PDF rendering */}
+            <canvas ref={pdfCanvasRef} className="max-w-full h-auto border rounded"></canvas>
+             {/* Page Navigation Controls */}
+            {pdfNumPages > 0 && ( // Only show controls if there are pages
+                <div className="flex items-center justify-center mt-4 text-gray-400 text-sm space-x-4">
+                    <button
+                        onClick={() => setCurrentPreviewPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPreviewPage === 1}
+                        className="disabled:opacity-50 cursor-pointer"
+                    >
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12 15.75 4.5" />
+                         </svg>
+                    </button>
+                    <span>
+                         Page {currentPreviewPage} of {pdfNumPages}
+                    </span>
+                    <button
+                         onClick={() => setCurrentPreviewPage(prev => Math.min(pdfNumPages, prev + 1))}
+                         disabled={currentPreviewPage === pdfNumPages}
+                         className="disabled:opacity-50 cursor-pointer"
+                    >
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5 15.75 12 8.25 19.5" />
+                         </svg>
+                    </button>
+                </div>
+            )}
+             {/* Text-to-Speech Play Button */}
+             {pageTexts.length > 0 && (
+                 <button
+                     onClick={handleSpeakPage}
+                     className={`ml-4 p-1 rounded-full transition-colors ${isSpeaking ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white`}
+                     aria-label={isSpeaking ? 'Stop speaking' : 'Speak page'}
+                 >
+                     {isSpeaking ? (
+                         // Stop icon
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                             <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9A2.25 2.25 0 0 1 18.75 7.5v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
+                         </svg>
+                     ) : (
+                         // Play icon
+                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
+                             <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.97 11.16a.75.75 0 0 0 0-1.32L7.23 6.22a.75.75 0 0 0-1.08.67v6.02a.75.75 0 0 0 1.08.67l8.74-4.91Z" />
+                         </svg>
+                     )}
+                 </button>
+             )}
+          </div>
+        </div>
+
+        {/* Center Column: Chat */}
+        <div className="flex flex-col flex-1 overflow-hidden">
+           {/* Messages Area */}
+           <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-100">
+             {/* Chat messages will be rendered here (Moved from Chat.tsx) */}
+             {messages.length === 0 && !isLoading && (
+               <div className="text-center text-gray-500">Start chatting about the PDF!</div>
+             )}
+             {messages.map((message) => (
+               <div
+                 key={message.id}
+                 className={`flex ${message.sender === "User" /* Use currentUser logic here */ ? 'justify-end' : 'justify-start'}`}
+               >
+                 <div
+                   className={`max-w-[70%] rounded-lg p-3 ${
+                     message.isAI
+                       ? 'bg-purple-100 text-gray-800 border border-purple-200'
+                       : message.sender === "User" /* Use currentUser logic here */
+                       ? 'bg-blue-500 text-white'
+                       : 'bg-white text-gray-800'
+                   }`}
+                 >
+                   <div className="font-semibold">{message.sender}</div>
+                   <div>{message.text}</div>
+                   <div className="text-xs opacity-75 mt-1">
+                     {new Date(message.timestamp).toLocaleTimeString()}
+                   </div>
+                 </div>
+               </div>
+             ))}
+
+             {isLoading && (
+               <div className="flex justify-start">
+                 <div className="bg-purple-100 text-gray-800 rounded-lg p-3 border border-purple-200">
+                   <div className="font-semibold">AI Assistant</div>
+                   <div className="flex space-x-2">
+                     <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce" />
+                     <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce delay-100" />
+                     <div className="w-2 h-2 bg-purple-500 rounded-full animate-bounce delay-200" />
+                   </div>
+                 </div>
+               </div>
+             )}
+             <div ref={messagesEndRef} />
+           </div>
+
+           {/* Input Area */}
+           <form onSubmit={handleSubmit} className="bg-white p-4 shadow-md">
+            <div className="flex space-x-4 items-center">
+              <input
+                type="text"
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                placeholder={`Ask a question about ${pdfFileName || 'the PDF'}...`}
+                className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isLoading}
+              />
+              {/* Paperclip/Upload button is on the Home page now */}
+              <button
+                type="submit"
+                className={`px-6 py-2 rounded-lg transition-colors ${
+                  isLoading
+                    ? 'bg-gray-400 cursor-not-allowed'
+                    : 'bg-blue-500 hover:bg-blue-600 text-white'
+                }`}
+                disabled={isLoading}
+              >
+                Send
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* Right Column: Extracted Notes */}
+        <div className="w-1/4 p-4 bg-white border-l overflow-y-auto flex flex-col">
+          {/* Tab Headers */}
+          <div className="flex mb-4 border-b">
+            <button
+              className={`pb-2 mr-4 ${activeTab === 'extracted' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+              onClick={() => setActiveTab('extracted')}
+            >
+              Extracted Text
+            </button>
+            <button
+              className={`pb-2 ${activeTab === 'notes' ? 'border-b-2 border-blue-500 text-blue-600 font-semibold' : 'text-gray-500 hover:text-gray-700'}`}
+              onClick={() => setActiveTab('notes')}
+            >
+              AI Notes
+            </button>
+          </div>
+
+          {/* Tab Content */}
+          {activeTab === 'extracted' && (
+            <div className="text-sm text-gray-800 break-words whitespace-pre-wrap overflow-y-auto flex-1">
+              {extractedText ? (
+                // Display text of the current page
+                pageTexts[currentPageIndex]
+              ) : (
+                 <div className="text-sm text-gray-500">Extracted text will appear here after PDF upload.</div>
+               )}
+                {/* Page Navigation Buttons */}
+               {pageTexts.length > 1 && (
+                 <div className="flex justify-center mt-4 space-x-2">
+                   {pageTexts.map((_, index) => (
+                     <button
+                       key={index}
+                       className={`px-3 py-1 text-sm rounded ${currentPageIndex === index ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
+                       onClick={() => setCurrentPageIndex(index)}
+                     >
+                       Page {index + 1}
+                     </button>
+                   ))}
+                 </div>
+               )}
+            </div>
+          )}
+
+          {activeTab === 'notes' && (
+            <div className="text-sm text-gray-800 overflow-y-auto flex-1">
+              {loadingNotes && <div className="text-sm text-gray-500">Generating AI notes...</div>}
+              {notesError && <div className="text-sm text-red-600">Error: {notesError}</div>}
+              {aiNotes && !loadingNotes && !notesError && (
+                <div className="text-sm text-gray-800 break-words whitespace-pre-wrap">{aiNotes}</div>
+              )}
+              {!aiNotes && !loadingNotes && !notesError && extractedText && (
+                <div className="text-sm text-gray-500">AI-generated notes will appear here after generation.</div>
+              )}
+              {!extractedText && (
+                 <div className="text-sm text-gray-500">Upload a PDF to generate AI notes.</div>
+              )}
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
+export default ChatWithPdfPage; 
