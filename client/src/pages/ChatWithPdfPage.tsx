@@ -11,7 +11,7 @@ import remarkGfm from 'remark-gfm';
 pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.REACT_APP_SERVER_URL}/pdfjs-worker.js`;
 
 // Add this helper function before the component
-function formatPageText(text: string): string {
+function formatPageText(text: string): { paragraph: string; sentences: string[] }[] {
   let formattedText = text;
 
   // 1. Normalize all whitespace characters (including non-breaking spaces, tabs, etc.) to single spaces
@@ -43,26 +43,22 @@ function formatPageText(text: string): string {
   // Split into paragraphs (double newlines or form feed)
   const paragraphs = formattedText.split(/\n\n+|\f/);
   
-  // Format each paragraph
+  // Format each paragraph and split into sentences
   return paragraphs
+    .filter(p => p.trim().length > 0) // Remove empty paragraphs early
     .map(paragraph => {
-      let trimmedParagraph = paragraph.trim(); // Trim each paragraph
-
-      // Capitalize first letter of each sentence and ensure single space after punctuation
-      const sentences = trimmedParagraph.split(/(?<=[.!?])\s*/); // Split by punctuation followed by optional space
-      return sentences
+      let trimmedParagraph = paragraph.trim();
+      const sentences = trimmedParagraph.split(/(?<=[.!?])\s*/)
+        .filter(s => s.trim().length > 0) // Remove empty sentences
         .map(sentence => {
-          let s = sentence.trim(); // Trim individual sentences
+          let s = sentence.trim();
           if (s.length > 0) {
             return s.charAt(0).toUpperCase() + s.slice(1); // Capitalize first letter
           }
           return s;
-        })
-        .join(' ') // Join sentences with a single space
-        .replace(/\s+/g, ' '); // Replace multiple spaces with a single space again
-    })
-    .filter(p => p.length > 0) // Remove empty paragraphs
-    .join('\n\n'); // Join paragraphs with double newlines
+        });
+      return { paragraph: trimmedParagraph, sentences: sentences };
+    });
 }
 
 // Add a helper function to format AI notes for better readability
@@ -102,7 +98,7 @@ const ChatWithPdfPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState('extracted'); // 'extracted' or 'notes'
 
   // State for extracted text segmented by pages and current page index
-  const [pageTexts, setPageTexts] = useState<string[]>([]);
+  const [pageTexts, setPageTexts] = useState<{ paragraph: string; sentences: string[] }[][]>([]);
   const [currentPageIndex, setCurrentPageIndex] = useState(0);
 
   // State for AI-generated notes and loading status
@@ -116,6 +112,9 @@ const ChatWithPdfPage: React.FC = () => {
 
   // State for text-to-speech
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [speakingParagraphIndex, setSpeakingParagraphIndex] = useState<number | null>(null);
+  const [speakingSentenceIndex, setSpeakingSentenceIndex] = useState<number | null>(null);
+  const [loadingSpeech, setLoadingSpeech] = useState(false); // New state for loading OpenAI speech
 
   // State for voice chat
   const [isVoiceChatActive, setIsVoiceChatActive] = useState(false);
@@ -125,13 +124,16 @@ const ChatWithPdfPage: React.FC = () => {
   useEffect(() => {
     if (extractedText) {
       // Basic segmentation: Split by a reasonable marker like form feed character or a large number of newlines
-      // A more robust solution would require server-side page-by-page extraction or more advanced client logic.
-      const segments = extractedText.split(/\f|\n{10,}/); // Split by form feed or 10+ newlines
-      setPageTexts(segments);
-      setCurrentPageIndex(0); // Reset to first page on new text
+      const rawSegments = extractedText.split(/\f|\n{10,}/);
+      // Apply formatPageText to each raw segment to get structured paragraphs and sentences for each PDF page
+      const formattedPageSegments = rawSegments.map(segment => formatPageText(segment));
+      setPageTexts(formattedPageSegments);
+      setCurrentPageIndex(0); // Reset to first segment on new text
+      setCurrentPreviewPage(1); // Reset PDF preview to page 1 on new text
     } else {
        setPageTexts([]);
        setCurrentPageIndex(0);
+       setCurrentPreviewPage(1); // Reset PDF preview to page 1
     }
   }, [extractedText]); // Re-segment if extractedText changes
 
@@ -172,6 +174,7 @@ const ChatWithPdfPage: React.FC = () => {
   // Setup SpeechRecognition for voice chat
   useEffect(() => {
     if ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) {
+      console.log('Speech Recognition API detected.');
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
 
@@ -180,6 +183,7 @@ const ChatWithPdfPage: React.FC = () => {
       recognition.lang = 'en-US'; // Set language
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
+        console.log('SpeechRecognition: onresult event fired.', event);
         const transcript = event.results[0][0].transcript;
         setNewMessage(transcript); // Set the transcribed text to the input field
         // Optionally, automatically send the message after transcription
@@ -192,6 +196,7 @@ const ChatWithPdfPage: React.FC = () => {
       };
 
       recognition.onend = () => {
+        console.log('SpeechRecognition: onend event fired.');
         // Only set to false if not explicitly starting again (e.g., in continuous mode)
         if (isVoiceChatActive) { // Keep active if continuous or awaiting next command
           // For now, turn off after single utterance. Will improve later for continuous.
@@ -208,6 +213,7 @@ const ChatWithPdfPage: React.FC = () => {
     // Cleanup
     return () => {
       if (recognitionRef.current) {
+        console.log('SpeechRecognition: Cleaning up recognition instance.');
         recognitionRef.current.stop();
       }
     };
@@ -313,43 +319,141 @@ const ChatWithPdfPage: React.FC = () => {
   // Effect to stop speech if preview page changes or PDF changes
   useEffect(() => {
     if (isSpeaking) {
-      window.speechSynthesis.cancel();
+      window.speechSynthesis.cancel(); // Stop Web Speech API speech
       setIsSpeaking(false);
+      setSpeakingParagraphIndex(null);
+      setSpeakingSentenceIndex(null);
+      setLoadingSpeech(false); // Also stop loading state
     }
-  }, [currentPreviewPage, pdfFileName, isSpeaking]); // Added isSpeaking dependency
+  }, [currentPreviewPage, pdfFileName, isSpeaking, currentPageIndex]); // Added currentPageIndex dependency
 
   // Handle text-to-speech play button click
-  const handleSpeakPage = () => {
-    if (isSpeaking) {
-      window.speechSynthesis.cancel();
+  const handleSpeakPage = async (paragraphIdx?: number, sentenceIdx?: number) => {
+    if (isSpeaking || loadingSpeech) {
+      // If currently speaking or loading, stop it
+      window.speechSynthesis.cancel(); // Cancel any ongoing Web Speech API speech
       setIsSpeaking(false);
-    } else {
-      const pageTextToSpeak = pageTexts[currentPreviewPage - 1]; // Get text for the current preview page (0-indexed array)
-      if (pageTextToSpeak) {
-        const utterance = new SpeechSynthesisUtterance(pageTextToSpeak);
-        utterance.onend = () => {
-          setIsSpeaking(false);
-        };
-        utterance.onerror = (event) => {
-          console.error('Speech synthesis error:', event);
-          setIsSpeaking(false);
-        };
-        window.speechSynthesis.speak(utterance);
-        setIsSpeaking(true);
+      setSpeakingParagraphIndex(null);
+      setSpeakingSentenceIndex(null);
+      setLoadingSpeech(false);
+      return;
+    }
+
+    let textToSpeak = '';
+    let targetParagraphIndex: number | null = null;
+    let targetSentenceIndex: number | null = null;
+
+    // Get the paragraphs for the current PDF preview page
+    const currentPdfPageParagraphs = pageTexts[currentPreviewPage - 1];
+
+    if (!currentPdfPageParagraphs || currentPdfPageParagraphs.length === 0) {
+      console.warn('No paragraphs available for the current PDF preview page.');
+      return;
+    }
+
+    if (paragraphIdx !== undefined && sentenceIdx !== undefined) {
+      // Speak a specific sentence from the given paragraph index on the current page
+      const paragraphData = currentPdfPageParagraphs[paragraphIdx];
+      if (paragraphData && paragraphData.sentences[sentenceIdx]) {
+        textToSpeak = paragraphData.sentences[sentenceIdx];
+        targetParagraphIndex = paragraphIdx;
+        targetSentenceIndex = sentenceIdx;
       }
+    } else {
+      // Speak the entire currently selected paragraph (default behavior for main play button)
+      const currentParagraph = currentPdfPageParagraphs[currentPageIndex];
+      if (currentParagraph) {
+        textToSpeak = currentParagraph.paragraph;
+        targetParagraphIndex = currentPageIndex; // Highlight the entire paragraph
+        targetSentenceIndex = null;
+      } else {
+        console.warn('No text available for the current selected paragraph.');
+        return; // Exit if no paragraph is selected or available
+      }
+    }
+
+    if (textToSpeak) {
+      setLoadingSpeech(true);
+      try {
+        const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/text-to-speech`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ text: textToSpeak, voice: 'alloy', speed: 1.0 }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+
+        audio.onended = () => {
+          setIsSpeaking(false);
+          setSpeakingParagraphIndex(null);
+          setSpeakingSentenceIndex(null);
+          setLoadingSpeech(false);
+          URL.revokeObjectURL(audioUrl); // Clean up the object URL
+        };
+        audio.onerror = (e) => {
+          console.error('Audio playback error:', e);
+          setIsSpeaking(false);
+          setSpeakingParagraphIndex(null);
+          setSpeakingSentenceIndex(null);
+          setLoadingSpeech(false);
+          URL.revokeObjectURL(audioUrl); // Clean up the object URL
+        };
+
+        audio.play();
+        setIsSpeaking(true);
+        setSpeakingParagraphIndex(targetParagraphIndex);
+        setSpeakingSentenceIndex(targetSentenceIndex);
+      } catch (error) {
+        console.error('Error fetching OpenAI TTS audio:', error);
+        setIsSpeaking(false);
+        setSpeakingParagraphIndex(null);
+        setSpeakingSentenceIndex(null);
+        setLoadingSpeech(false);
+      }
+    }
+  };
+
+  // Handle click on a sentence to start speaking from that sentence
+  const handleSentenceClick = (paragraphIdx: number, sentenceIdx: number, sentenceText: string) => {
+    // If the same sentence is clicked and it's currently speaking/loading, stop it.
+    if ((isSpeaking && speakingParagraphIndex === paragraphIdx && speakingSentenceIndex === sentenceIdx) || loadingSpeech) {
+      window.speechSynthesis.cancel(); // Cancel any ongoing Web Speech API speech
+      setIsSpeaking(false);
+      setSpeakingParagraphIndex(null);
+      setSpeakingSentenceIndex(null);
+      setLoadingSpeech(false);
+    } else {
+      // Stop any ongoing speech and start speaking the clicked sentence
+      window.speechSynthesis.cancel(); // Cancel any lingering Web Speech API speech
+      setIsSpeaking(false); // Reset immediately before new speech starts
+      setLoadingSpeech(false); // Reset loading status
+      handleSpeakPage(paragraphIdx, sentenceIdx);
     }
   };
 
   // Handle voice chat toggle
   const handleToggleVoiceChat = () => {
     if (isVoiceChatActive) {
+      console.log('Attempting to stop voice chat.');
       recognitionRef.current?.stop();
       setIsVoiceChatActive(false);
     } else {
+      console.log('Attempting to start voice chat.');
       // Before starting, ensure any ongoing speech is stopped
-      if (window.speechSynthesis.speaking) {
+      if (isSpeaking) {
         window.speechSynthesis.cancel();
         setIsSpeaking(false);
+        setSpeakingParagraphIndex(null);
+        setSpeakingSentenceIndex(null);
+        setLoadingSpeech(false); // Also stop loading state
       }
       recognitionRef.current?.start();
       setIsVoiceChatActive(true);
@@ -367,9 +471,14 @@ const ChatWithPdfPage: React.FC = () => {
     if (!newMessage.trim() || isLoading || !currentUser) return;
 
     setIsLoading(true);
-    // Emit message via socket, including the text of the current page for context
+    // Emit message via socket, including the text of the current selected paragraph for context
+    const currentPdfPageParagraphs = pageTexts[currentPreviewPage - 1];
+    const currentParagraphText = currentPdfPageParagraphs && currentPdfPageParagraphs[currentPageIndex]
+      ? currentPdfPageParagraphs[currentPageIndex].paragraph
+      : '';
+
     const messagePayload = {
-        text: pageTexts[currentPageIndex] ? `${pageTexts[currentPageIndex].substring(0, 4000)}\n\nUser: ${newMessage}` : newMessage, // Limit context size
+        text: currentParagraphText.substring(0, 4000) + '\n\nUser: ' + newMessage, // Limit context size
           sender: currentUser
       };
       socketRef.current?.emit('message', messagePayload);
@@ -450,11 +559,11 @@ const ChatWithPdfPage: React.FC = () => {
              {/* Text-to-Speech Play Button */}
              {pageTexts.length > 0 && (
                  <button
-                     onClick={handleSpeakPage}
-                     className={`absolute bottom-4 left-1/2 -translate-x-1/2 p-3 rounded-full transition-colors ${isSpeaking ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white shadow-lg`}
-                     aria-label={isSpeaking ? 'Stop speaking' : 'Speak page'}
+                     onClick={() => handleSpeakPage()}
+                     className={`absolute bottom-4 left-1/2 -translate-x-1/2 p-3 rounded-full transition-colors ${isSpeaking || loadingSpeech ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-500 hover:bg-blue-600'} text-white shadow-lg`}
+                     aria-label={isSpeaking || loadingSpeech ? 'Stop speaking' : 'Speak page'}
                  >
-                     {isSpeaking ? (
+                     {isSpeaking || loadingSpeech ? (
                          // Stop icon
                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
                              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 0 1 7.5 5.25h9A2.25 2.25 0 0 1 18.75 7.5v9a2.25 2.25 0 0 1-2.25 2.25h-9a2.25 2.25 0 0 1-2.25-2.25v-9Z" />
@@ -596,28 +705,45 @@ const ChatWithPdfPage: React.FC = () => {
             <div className="text-sm text-gray-800 break-words whitespace-pre-wrap overflow-y-auto flex-1">
               {extractedText ? (
                 <div className="prose prose-sm max-w-none">
-                  {pageTexts[currentPageIndex] ? (
-                    <div className="space-y-4">
-                      {formatPageText(pageTexts[currentPageIndex])
-                        .split('\n\n')
-                        .map((paragraph, index) => (
-                          <p key={index} className="leading-relaxed">
-                            {paragraph}
+                  {(() => {
+                    const currentPdfPageParagraphs = pageTexts[currentPreviewPage - 1];
+                    if (!currentPdfPageParagraphs || currentPdfPageParagraphs.length === 0) {
+                      return <div className="text-gray-500 italic">No text available for this PDF page.</div>;
+                    }
+
+                    const currentParagraphData = currentPdfPageParagraphs[currentPageIndex];
+                    if (!currentParagraphData || currentParagraphData.sentences.length === 0) {
+                      return <div className="text-gray-500 italic">No text available for this segment.</div>;
+                    }
+
+                    return (
+                      <div className="space-y-4">
+                        {currentParagraphData.sentences.map((sentence, sentenceIndex) => (
+                          <p key={sentenceIndex} className="leading-relaxed">
+                            <span
+                              onClick={() => handleSentenceClick(currentPageIndex, sentenceIndex, sentence)}
+                              className={`cursor-pointer ${
+                                speakingParagraphIndex === currentPageIndex && speakingSentenceIndex === sentenceIndex
+                                  ? 'bg-yellow-300' // Highlight color
+                                  : ''
+                              }`}
+                            >
+                              {sentence}{' '}
+                            </span>
                           </p>
                         ))}
-                    </div>
-                  ) : (
-                    <div className="text-gray-500 italic">No text available for this page.</div>
-                  )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="text-sm text-gray-500">Extracted text will appear here after PDF upload.</div>
               )}
               {/* Page Navigation Buttons */}
-              {pageTexts.length > 1 && (
+              {pageTexts[currentPreviewPage - 1] && pageTexts[currentPreviewPage - 1].length > 1 && (
                 <div className="sticky bottom-0 bg-white border-t mt-4 pt-4">
                   <div className="flex flex-wrap justify-center gap-2">
-                    {pageTexts.map((_, index) => (
+                    {pageTexts[currentPreviewPage - 1].map((_, index) => (
                       <button
                         key={index}
                         className={`px-3 py-1 text-sm rounded-md transition-colors ${
@@ -627,7 +753,7 @@ const ChatWithPdfPage: React.FC = () => {
                         }`}
                         onClick={() => setCurrentPageIndex(index)}
                       >
-                        Page {index + 1}
+                        Segment {index + 1}
                       </button>
                     ))}
                   </div>
