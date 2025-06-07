@@ -31,7 +31,7 @@ const MyPDFsPage: React.FC = () => {
 
   const handleChatWithPdf = async (fileName: string) => {
     try {
-      const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/upload?filename=${encodeURIComponent(fileName)}`);
+      const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/extracted-text/${encodeURIComponent(fileName)}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch extracted text for ${fileName}`);
       }

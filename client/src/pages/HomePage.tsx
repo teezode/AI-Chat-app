@@ -109,9 +109,7 @@ const HomePage: React.FC = () => {
 
   const handleChatWithPdf = async (fileName: string) => {
     try {
-      // We are essentially re-using the server-side upload endpoint logic here
-      // to get the extracted text for a given filename.
-      const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/upload?filename=${encodeURIComponent(fileName)}`);
+      const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/extracted-text/${encodeURIComponent(fileName)}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch extracted text for ${fileName}`);
       }
@@ -127,8 +125,8 @@ const HomePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-gray-900 text-white flex flex-col items-center justify-center">
-      <div className="bg-white p-8 rounded-lg shadow-xl text-gray-800 w-full max-w-md">
+    <div className="min-h-[calc(100vh-64px)] bg-[#F1F5FD] text-gray-800 flex flex-col items-center justify-center">
+      <div className="bg-white p-8 text-gray-800 w-full max-w-sm rounded-[20px] shadow-2xl mr-auto ml-8">
         <h1 className="text-2xl font-bold mb-6 text-center">Upload Your PDF</h1>
         
         {/* Drag and Drop Area */}

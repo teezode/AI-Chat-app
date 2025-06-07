@@ -9,6 +9,7 @@ import { OpenAIService } from './services/openai';
 import multer, { Multer } from 'multer';
 import pdfParse from 'pdf-parse';
 import fs from 'fs';
+import path from 'path';
 import Datastore from 'nedb';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
@@ -174,7 +175,8 @@ app.get('/api/pdf/:filename', (req: Request, res: Response) => {
 
 // New endpoint to serve pdf.worker.min.js
 app.get('/pdfjs-worker.js', (req: Request, res: Response) => {
-  const workerPath = require.resolve('pdfjs-dist/build/pdf.worker.min.js');
+  // Construct the absolute path to pdf.worker.min.js using path.join and __dirname
+  const workerPath = path.join(__dirname, '../node_modules/pdfjs-dist/build/pdf.worker.min.js');
   res.setHeader('Content-Type', 'application/javascript');
   res.sendFile(workerPath);
 });
@@ -212,6 +214,26 @@ app.delete('/api/my-pdfs/:filename', (req: Request, res: Response) => {
 
     res.json({ message: 'PDF file deleted successfully' });
   });
+});
+
+// New endpoint to get extracted text of a PDF file by filename
+app.get('/api/extracted-text/:filename', async (req: Request, res: Response) => {
+  const filename = req.params.filename;
+  const filePath = `./uploads/${filename}`;
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  try {
+    const fileBuffer = await fs.promises.readFile(filePath); // Read the file into a buffer
+    const data = await pdfParse(fileBuffer);
+    const extractedText = data.text;
+    res.json({ extractedText: extractedText });
+  } catch (err) {
+    console.error('Error extracting PDF text:', err);
+    res.status(500).json({ error: 'Failed to extract PDF text' });
+  }
 });
 
 // New endpoint for user registration

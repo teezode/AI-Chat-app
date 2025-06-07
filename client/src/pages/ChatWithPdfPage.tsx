@@ -5,8 +5,8 @@ import { Socket } from 'socket.io-client'; // Import Socket type
 import { Message } from '../types'; // Import Message type
 import * as pdfjs from 'pdfjs-dist';
 
-// Serve the worker script from the Node.js server
-pdfjs.GlobalWorkerOptions.workerSrc = 'http://localhost:5050/pdfjs-worker.js';
+// Serve the worker script from the Node.js server using the environment variable
+pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.REACT_APP_SERVER_URL}/pdfjs-worker.js`;
 
 const ChatWithPdfPage: React.FC = () => {
   const location = useLocation();
@@ -68,7 +68,7 @@ const ChatWithPdfPage: React.FC = () => {
       setLoadingNotes(true);
       setNotesError(null);
       try {
-        const response = await fetch('http://localhost:5050/api/generate-notes', {
+        const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/generate-notes`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -96,8 +96,8 @@ const ChatWithPdfPage: React.FC = () => {
 
   // Socket connection and event listeners (Moved from Chat.tsx)
   useEffect(() => {
-    // Connect to WebSocket server
-    const socket = io('http://localhost:5050');
+    // Connect to WebSocket server using the environment variable
+    const socket = io(process.env.REACT_APP_SERVER_URL || 'http://localhost:5000'); // Fallback to 5000
     socketRef.current = socket;
 
     socket.on('connect', () => {
@@ -141,8 +141,8 @@ const ChatWithPdfPage: React.FC = () => {
       if (!pdfFileName) return;
 
       try {
-        // Fetch the PDF from the server for preview rendering
-        const response = await fetch(`http://localhost:5050/api/pdf/${encodeURIComponent(pdfFileName)}`);
+        // Fetch the PDF from the server for preview rendering using the environment variable
+        const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/pdf/${encodeURIComponent(pdfFileName)}`);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -245,10 +245,36 @@ const ChatWithPdfPage: React.FC = () => {
     <div className="flex flex-col h-screen bg-gray-100">
       {/* Header (NavBar is already included in App.tsx) */}
       <div className="bg-white shadow-md p-4 flex justify-between items-center">
-         <h1 className="text-2xl font-bold text-gray-800">Chatting with: {pdfFileName || 'Uploaded PDF'}</h1>
-          <div className="flex items-center space-x-2">
-            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className="text-sm text-gray-600">
+         <h1 className="text-2xl font-bold text-gray-800">Chat with PDF: {pdfFileName || 'N/A'}</h1>
+          {pdfNumPages > 0 && (
+              <div className="flex items-center space-x-1 ml-4 overflow-x-auto whitespace-nowrap pb-1">
+                  {/* Render page buttons */}
+                  {[...Array(pdfNumPages)].map((_, index) => {
+                      const pageNumber = index + 1;
+                      // Only show a limited range of pages around the current page, or first/last few
+                      const isCloseToCurrent = Math.abs(pageNumber - currentPreviewPage) <= 3; // Show 3 pages before/after
+                      const isFirstOrLastFew = pageNumber <= 2 || pageNumber >= pdfNumPages - 1;
+
+                      if (isCloseToCurrent || isFirstOrLastFew) {
+                          return (
+                              <button
+                                  key={pageNumber}
+                                  onClick={() => setCurrentPreviewPage(pageNumber)}
+                                  className={`px-3 py-1 rounded-md text-sm font-medium ${currentPreviewPage === pageNumber ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                              >
+                                  Page {pageNumber}
+                              </button>
+                          );
+                      } else if (pageNumber === currentPreviewPage - 4 || pageNumber === currentPreviewPage + 4) { // Add ellipsis
+                          return <span key={`ellipsis-${pageNumber}`} className="px-2 text-gray-500">...</span>;
+                      }
+                      return null;
+                  })}
+              </div>
+          )}
+          <div className="flex items-center text-sm font-medium ml-auto">
+            <span className={`h-3 w-3 rounded-full mr-2 ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+            <span className={`${isConnected ? 'text-green-600' : 'text-red-600'}`}>
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
           </div>
@@ -284,32 +310,7 @@ const ChatWithPdfPage: React.FC = () => {
 
             {/* Canvas for PDF rendering */}
             <canvas ref={pdfCanvasRef} className="max-w-full h-auto border rounded"></canvas>
-             {/* Page Navigation Controls */}
-            {pdfNumPages > 0 && ( // Only show controls if there are pages
-                <div className="flex items-center justify-center mt-4 text-gray-400 text-sm space-x-4">
-                    <button
-                        onClick={() => setCurrentPreviewPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPreviewPage === 1}
-                        className="disabled:opacity-50 cursor-pointer"
-                    >
-                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12 15.75 4.5" />
-                         </svg>
-                    </button>
-                    <span>
-                         Page {currentPreviewPage} of {pdfNumPages}
-                    </span>
-                    <button
-                         onClick={() => setCurrentPreviewPage(prev => Math.min(pdfNumPages, prev + 1))}
-                         disabled={currentPreviewPage === pdfNumPages}
-                         className="disabled:opacity-50 cursor-pointer"
-                    >
-                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5 15.75 12 8.25 19.5" />
-                         </svg>
-                    </button>
-                </div>
-            )}
+             {/* Page Navigation Controls - REMOVED from here */}
              {/* Text-to-Speech Play Button */}
              {pageTexts.length > 0 && (
                  <button
