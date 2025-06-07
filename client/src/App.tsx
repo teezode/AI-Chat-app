@@ -32,8 +32,8 @@ const App: React.FC = () => {
         <Route path="/chat-with-pdf" element={<ProtectedRoute element={<ChatWithPdfPage />} />} />
 
         {/* Add routes for Sign Up and Sign In pages */}
-        <Route path="/signup" element={<SignUpPage />} />
-        <Route path="/signin" element={<SignInPage />} />
+        {/* <Route path="/signup" element={<SignUpPage />} /> */}
+        {/* <Route path="/signin" element={<SignInPage />} /> */}
 
         {/* If the original /chat route is no longer needed, remove it */}
         {/* <Route path="/chat" element={<Chat />} /> */}
