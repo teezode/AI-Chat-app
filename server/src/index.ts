@@ -209,20 +209,33 @@ app.get('/pdfjs-worker.js', (req: Request, res: Response) => {
 // New endpoint to list uploaded PDF files
 app.get('/api/my-pdfs', (req: Request, res: Response) => {
   const uploadDir = './uploads';
-  fs.readdir(uploadDir, (err, files) => {
+  fs.readdir(uploadDir, async (err, files) => {
     if (err) {
       console.error('Error listing PDF files:', err);
-      // If the directory doesn't exist yet, return an empty array instead of 500 error
       if (err.code === 'ENOENT') {
         return res.json([]);
       }
       return res.status(500).json({ error: 'Failed to list PDF files' });
     }
 
-    // Filter for .pdf files (case-insensitive)
     const pdfFiles = files.filter(file => file.toLowerCase().endsWith('.pdf'));
 
-    res.json(pdfFiles);
+    // Get detailed info for each PDF including modification time
+    const filesWithDetails = await Promise.all(pdfFiles.map(async (fileName) => {
+      const filePath = path.join(uploadDir, fileName);
+      try {
+        const stats = await fs.promises.stat(filePath);
+        return { fileName, timestamp: stats.mtimeMs }; // mtimeMs is modification time in milliseconds
+      } catch (statErr) {
+        console.error(`Error getting stats for file ${fileName}:`, statErr);
+        return { fileName, timestamp: 0 }; // Fallback if stat fails
+      }
+    }));
+
+    // Sort by timestamp in descending order (latest first)
+    filesWithDetails.sort((a, b) => b.timestamp - a.timestamp);
+
+    res.json(filesWithDetails);
   });
 });
 

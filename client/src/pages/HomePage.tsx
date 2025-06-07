@@ -6,7 +6,7 @@ const HomePage: React.FC = () => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
-  const [recentPdfs, setRecentPdfs] = useState<string[]>([]);
+  const [recentPdfs, setRecentPdfs] = useState<{ fileName: string, timestamp: number }[]>([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
   const [recentError, setRecentError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -22,8 +22,8 @@ const HomePage: React.FC = () => {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data: string[] = await response.json();
-      // Display only the most recent 3 PDFs
+      const data: { fileName: string, timestamp: number }[] = await response.json();
+      // Display only the most recent 3 PDFs, which are already sorted by the server
       setRecentPdfs(data.slice(0, 3));
     } catch (err: any) {
       console.error('Error fetching recent PDFs:', err);
@@ -193,10 +193,10 @@ const HomePage: React.FC = () => {
               <div className="text-gray-500">No recent PDFs uploaded yet.</div>
             ) : (
               <div className="space-y-2">
-                {recentPdfs.map((fileName, index) => (
+                {recentPdfs.map((file, index) => (
                   <div key={index} className="bg-gray-100 p-3 rounded cursor-pointer hover:bg-gray-200 transition-colors"
-                    onClick={() => handleChatWithPdf(fileName)}>
-                    {fileName}
+                    onClick={() => handleChatWithPdf(file.fileName)}>
+                    <p className="truncate">{file.fileName}</p>
                   </div>
                 ))}
               </div>
