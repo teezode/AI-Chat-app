@@ -26,8 +26,8 @@ const HomePage: React.FC = () => {
       // Display only the most recent 3 PDFs, which are already sorted by the server
       setRecentPdfs(data.slice(0, 3));
     } catch (err: any) {
-      console.error('Error fetching recent PDFs:', err);
-      setRecentError('Failed to load recent PDFs.');
+      console.error('Error fetching recent PDFs in HomePage:', err);
+      setRecentError(err.message || 'Failed to load recent PDFs.');
     } finally {
       setLoadingRecent(false);
     }
@@ -35,6 +35,7 @@ const HomePage: React.FC = () => {
 
   // Fetch recent PDFs on component mount and after a successful upload
   useEffect(() => {
+    console.log('HomePage mounted. REACT_APP_SERVER_URL:', process.env.REACT_APP_SERVER_URL);
     fetchRecentPdfs();
   }, []);
 
@@ -64,11 +65,11 @@ const HomePage: React.FC = () => {
 
         } else {
           setUploadStatus('Upload failed');
-          console.error('File upload failed', response.status);
+          console.error('File upload failed in HomePage:', response.status);
         }
       } catch (error) {
         setUploadStatus('Upload failed');
-        console.error('Error uploading file:', error);
+        console.error('Error uploading file in HomePage:', error);
       } finally {
         setUploading(false);
       }
@@ -119,7 +120,7 @@ const HomePage: React.FC = () => {
       navigate('/chat-with-pdf', { state: { pdfFileName: fileName, extractedText: extractedText } });
 
     } catch (error) {
-      console.error('Error fetching extracted text for chat:', error);
+      console.error('Error fetching extracted text for chat in HomePage:', error);
       alert(`Could not load extracted text for ${fileName}. Please try again.`);
     }
   };
