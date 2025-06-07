@@ -4,11 +4,8 @@ import NavBar from './components/NavBar';
 // import Chat from './components/Chat'; // Original Chat component is likely no longer needed
 import ChatWithPdfPage from './pages/ChatWithPdfPage';
 import HomePage from './pages/HomePage'; // Move HomePage import to the top
-import SignUpPage from './pages/SignUpPage';
-import SignInPage from './pages/SignInPage';
 import MyPDFsPage from './pages/MyPDFsPage';
 import ProtectedRoute from './components/ProtectedRoute';
-import TokenHandler from './components/TokenHandler';
 
 // Placeholder component for the My PDFs page
 // const MyPDFsPage: React.FC = () => <div>My PDFs Page (Placeholder)</div>;
@@ -20,7 +17,7 @@ const App: React.FC = () => {
   return (
     <Router>
       <NavBar />
-      <TokenHandler />
+      
       <Routes>
         {/* Route for the Home Page (now handles upload) */}
         <Route path="/" element={<ProtectedRoute element={<HomePage />} />} />

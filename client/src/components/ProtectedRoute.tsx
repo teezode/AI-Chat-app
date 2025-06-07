@@ -12,8 +12,8 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ element }) => {
   if (isAuthenticated) {
     return element; // Render the component if authenticated
   } else {
-    // Redirect to the sign-in page if not authenticated
-    return <Navigate to="/signin" replace />;
+    // Redirect to the home page if not authenticated
+    return <Navigate to="/" replace />;
   }
 };
 
