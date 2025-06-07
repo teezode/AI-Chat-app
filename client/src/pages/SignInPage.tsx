@@ -6,6 +6,7 @@ const SignInPage: React.FC = () => {
 
   // Redirect to home if already authenticated
   React.useEffect(() => {
+    console.log('REACT_APP_SERVER_URL:', process.env.REACT_APP_SERVER_URL);
     const token = localStorage.getItem('token');
     if (token) {
       navigate('/');
