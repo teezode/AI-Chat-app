@@ -8,6 +8,23 @@ import * as pdfjs from 'pdfjs-dist';
 // Serve the worker script from the Node.js server using the environment variable
 pdfjs.GlobalWorkerOptions.workerSrc = `${process.env.REACT_APP_SERVER_URL}/pdfjs-worker.js`;
 
+// Add this helper function before the component
+function formatPageText(text: string): string {
+  // Split into paragraphs (double newlines)
+  const paragraphs = text.split(/\n\n+/);
+  
+  // Format each paragraph
+  return paragraphs
+    .map(paragraph => {
+      // Capitalize first letter of each sentence
+      const sentences = paragraph.split(/(?<=[.!?])\s+/);
+      return sentences
+        .map(sentence => sentence.charAt(0).toUpperCase() + sentence.slice(1))
+        .join(' ');
+    })
+    .join('\n\n');
+}
+
 const ChatWithPdfPage: React.FC = () => {
   const location = useLocation();
   // Ensure we handle cases where state might be missing on direct access
@@ -430,25 +447,44 @@ const ChatWithPdfPage: React.FC = () => {
           {activeTab === 'extracted' && (
             <div className="text-sm text-gray-800 break-words whitespace-pre-wrap overflow-y-auto flex-1">
               {extractedText ? (
-                // Display text of the current page
-                pageTexts[currentPageIndex]
+                <div className="prose prose-sm max-w-none">
+                  {pageTexts[currentPageIndex] ? (
+                    <div className="space-y-4">
+                      {formatPageText(pageTexts[currentPageIndex])
+                        .split('\n\n')
+                        .map((paragraph, index) => (
+                          <p key={index} className="leading-relaxed">
+                            {paragraph}
+                          </p>
+                        ))}
+                    </div>
+                  ) : (
+                    <div className="text-gray-500 italic">No text available for this page.</div>
+                  )}
+                </div>
               ) : (
-                 <div className="text-sm text-gray-500">Extracted text will appear here after PDF upload.</div>
-               )}
-                {/* Page Navigation Buttons */}
-               {pageTexts.length > 1 && (
-                 <div className="flex justify-center mt-4 space-x-2">
-                   {pageTexts.map((_, index) => (
-                     <button
-                       key={index}
-                       className={`px-3 py-1 text-sm rounded ${currentPageIndex === index ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700'}`}
-                       onClick={() => setCurrentPageIndex(index)}
-                     >
-                       Page {index + 1}
-                     </button>
-                   ))}
-                 </div>
-               )}
+                <div className="text-sm text-gray-500">Extracted text will appear here after PDF upload.</div>
+              )}
+              {/* Page Navigation Buttons */}
+              {pageTexts.length > 1 && (
+                <div className="sticky bottom-0 bg-white border-t mt-4 pt-4">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {pageTexts.map((_, index) => (
+                      <button
+                        key={index}
+                        className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                          currentPageIndex === index 
+                            ? 'bg-blue-500 text-white' 
+                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                        }`}
+                        onClick={() => setCurrentPageIndex(index)}
+                      >
+                        Page {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -136,6 +136,29 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+// Add this helper function before the routes
+function formatExtractedText(text: string): string {
+  // Replace multiple newlines with a single newline
+  let formatted = text.replace(/\n{3,}/g, '\n\n');
+  
+  // Replace multiple spaces with a single space
+  formatted = formatted.replace(/[ \t]{2,}/g, ' ');
+  
+  // Add proper spacing after periods that are followed by a capital letter
+  formatted = formatted.replace(/\.([A-Z])/g, '. $1');
+  
+  // Remove any non-printable characters except newlines
+  formatted = formatted.replace(/[^\x20-\x7E\n]/g, '');
+  
+  // Trim whitespace from each line
+  formatted = formatted.split('\n').map(line => line.trim()).join('\n');
+  
+  // Remove empty lines at the start and end
+  formatted = formatted.trim();
+  
+  return formatted;
+}
+
 // API Routes
 app.get('/api/messages', (req: Request, res: Response) => {
   res.json(messages);
@@ -147,11 +170,13 @@ app.post('/api/upload', upload.single('pdf'), async (req: Request, res: Response
     return res.status(400).json({ error: 'No file uploaded' });
   }
   try {
-    // File is already saved to disk by multer
     const data = await pdfParse(file.path);
-    const extractedText = data.text;
-    // Respond with the filename and extracted text
-    res.json({ message: 'PDF uploaded and text extracted successfully', extractedText: extractedText, pdfFileName: file.originalname });
+    const extractedText = formatExtractedText(data.text);
+    res.json({ 
+      message: 'PDF uploaded and text extracted successfully', 
+      extractedText: extractedText, 
+      pdfFileName: file.originalname 
+    });
   } catch (err) {
     res.status(500).json({ error: 'Failed to extract PDF text' });
   }
@@ -175,8 +200,8 @@ app.get('/api/pdf/:filename', (req: Request, res: Response) => {
 
 // New endpoint to serve pdf.worker.min.js
 app.get('/pdfjs-worker.js', (req: Request, res: Response) => {
-  // Construct the absolute path to pdf.worker.min.js using path.join and __dirname
-  const workerPath = path.join(__dirname, '../node_modules/pdfjs-dist/build/pdf.worker.min.js');
+  // Construct the absolute path to pdf.worker.min.mjs
+  const workerPath = path.join(__dirname, '../node_modules/pdfjs-dist/build/pdf.worker.min.mjs');
   res.setHeader('Content-Type', 'application/javascript');
   res.sendFile(workerPath);
 });
@@ -226,9 +251,9 @@ app.get('/api/extracted-text/:filename', async (req: Request, res: Response) => 
   }
 
   try {
-    const fileBuffer = await fs.promises.readFile(filePath); // Read the file into a buffer
+    const fileBuffer = await fs.promises.readFile(filePath);
     const data = await pdfParse(fileBuffer);
-    const extractedText = data.text;
+    const extractedText = formatExtractedText(data.text);
     res.json({ extractedText: extractedText });
   } catch (err) {
     console.error('Error extracting PDF text:', err);
