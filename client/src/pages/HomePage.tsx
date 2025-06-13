@@ -126,8 +126,8 @@ const HomePage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-[#F1F5FD] text-gray-800 flex flex-col items-center justify-center">
-      <div className="bg-white p-8 text-gray-800 w-full max-w-sm rounded-[20px] shadow-2xl mr-auto ml-8">
+    <div className="min-h-[calc(100vh-64px)] text-gray-800 flex flex-col items-center justify-center">
+      <div className="bg-white p-8 text-gray-800 w-full max-w-sm rounded-[20px] shadow-2xl mr-auto ml-20">
         <h1 className="text-2xl font-bold mb-6 text-center">Upload Your PDF</h1>
         
         {/* Drag and Drop Area */}
