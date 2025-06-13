@@ -1,10 +1,12 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 import express, { Request, Response } from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { OpenAIService } from './services/openai';
 import multer, { Multer } from 'multer';
 import pdfParse from 'pdf-parse';
@@ -24,8 +26,8 @@ const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_here'; // Replace w
 const googleClientId = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET';
 
-// Initialize the database
-const usersDB = new Datastore({ filename: 'users.db', autoload: true });
+// Initialize the database with a writable path
+const usersDB = new Datastore({ filename: '/tmp/users.db', autoload: true });
 
 // Add an index to ensure emails are unique
 usersDB.ensureIndex({ fieldName: 'email', unique: true }, (err: Error | null) => {
@@ -34,8 +36,6 @@ usersDB.ensureIndex({ fieldName: 'email', unique: true }, (err: Error | null) =>
 
 // Add this at the top or in a types.d.ts file if needed:
 declare module 'pdf-parse';
-
-dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
@@ -486,4 +486,7 @@ io.on('connection', (socket: Socket) => {
 const PORT = process.env.PORT || 5000; // Use environment port or default to 5000
 httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+}).on('error', (err: Error) => {
+  console.error('Server failed to start:', err);
+  process.exit(1); // Exit with a failure code
 }); 
