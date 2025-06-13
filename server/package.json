@@ -28,7 +28,8 @@
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^4.8.69",
     "socket.io": "^4.7.2",
-    "socket.io-client": "^4.7.2"
+    "socket.io-client": "^4.7.2",
+    "mongodb": "^6.3.0"
   },
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",

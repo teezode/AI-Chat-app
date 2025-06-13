@@ -39,7 +39,7 @@ async function connectToMongo() {
     const db = client.db('docuchat'); // Replace 'docuchat' with your database name in Atlas if different
     usersCollection = db.collection('users'); // Get the users collection
     // Ensure unique index on email for the new collection
-    usersCollection.createIndex({ email: 1 }, { unique: true }).catch(err => {
+    usersCollection.createIndex({ email: 1 }, { unique: true }).catch((err: any) => {
       console.error('Error ensuring email index unique in MongoDB:', err);
     });
   } catch (error) {
