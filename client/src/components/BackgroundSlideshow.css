@@ -1,0 +1,33 @@
+.background-slideshow {
+  position: fixed; /* Fix the slideshow to the viewport */
+  top: 0;
+  left: 0;
+  width: 100vw; /* Cover the entire viewport width */
+  height: 100vh; /* Cover the entire viewport height */
+  z-index: -1; /* Place it behind other content */
+  overflow: hidden; /* Prevent scrollbars if image is larger */
+}
+
+.background-slide {
+  position: absolute; /* Position slides absolutely within the container */
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover; /* Cover the entire container */
+  background-position: center; /* Center the image */
+  background-repeat: no-repeat; /* Prevent repeating */
+  opacity: 0; /* Start invisible */
+  transition: opacity 1s ease-in-out; /* Smooth 1-second fade transition */
+}
+
+.background-slide.active {
+  opacity: 1; /* Make the active slide visible */
+}
+
+.background-slide.transitioning {
+  /* Optional: Add a slight delay or different transition for the 'transitioning' state if desired */
+  /* For example, you could add a slight blur or scale effect during the fade out. */
+  /* transition: opacity 1s ease-in-out, filter 1s ease-in-out; */
+  /* filter: blur(2px); */
+} 

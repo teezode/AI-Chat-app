@@ -8,6 +8,7 @@ import MyPDFsPage from './pages/MyPDFsPage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
 import ProtectedRoute from './components/ProtectedRoute';
+import BackgroundSlideshow from './components/BackgroundSlideshow';
 
 // Placeholder component for the My PDFs page
 // const MyPDFsPage: React.FC = () => <div>My PDFs Page (Placeholder)</div>;
@@ -18,6 +19,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 const App: React.FC = () => {
   return (
     <Router>
+      <BackgroundSlideshow />
       <NavBar />
       
       <Routes>
