@@ -22,7 +22,7 @@ const NavBar: React.FC = () => {
   return (
     <nav className="text-gray-800 p-4 flex justify-between items-center">
       {/* Logo/App Name - Link to Home */}
-      <Link to="/" className="text-2xl font-bold text-gray-900">DocuChats</Link>
+      <Link to="/" className="text-2xl font-bold text-white">DocuChats</Link>
 
       {/* Navigation Links and User Profile */}
       <div className="flex items-center space-x-4 relative">
