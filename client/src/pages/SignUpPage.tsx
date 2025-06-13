@@ -22,7 +22,7 @@ const SignUpPage: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post(`${process.env.REACT_APP_SERVER_URL}/api/auth/signup`, {
+      const response = await axios.post(`${process.env.REACT_APP_SERVER_URL}/api/signup`, {
         email,
         password
       });
