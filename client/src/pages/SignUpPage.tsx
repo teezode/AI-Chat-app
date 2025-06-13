@@ -64,7 +64,7 @@ const SignUpPage: React.FC = () => {
                 Go to Login
               </button>
             </div>
-          </div>
+        </div>
         ) : (
           <>
             <div>

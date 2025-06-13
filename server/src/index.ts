@@ -1,7 +1,8 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+// Remove the insecure TLS setting
+// process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
 
 import express, { Request, Response } from 'express';
 import { createServer } from 'http';
@@ -18,6 +19,7 @@ import jwt from 'jsonwebtoken';
 import passport from 'passport';
 import session from 'express-session';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import { S3Service } from './services/s3';
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, '..', 'uploads');
@@ -130,6 +132,9 @@ const messages: Array<{ id: string; text: string; sender: string; timestamp: num
 // Initialize OpenAI service
 const aiService = OpenAIService.getInstance();
 
+// Initialize S3 service
+const s3Service = S3Service.getInstance();
+
 // Configure multer for disk storage
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -212,34 +217,76 @@ app.post('/api/upload', upload.single('pdf'), async (req: Request, res: Response
     return res.status(400).json({ error: 'No file uploaded' });
   }
   try {
-    const data = await pdfParse(file.path);
-    console.log('Raw extracted text (upload):', data.text.substring(0, 500) + '...'); // Log first 500 chars
+    // Read the file into a buffer
+    const fileBuffer = await fs.promises.readFile(file.path);
+    
+    // Upload to S3
+    const s3Key = await s3Service.uploadFile(fileBuffer, file.originalname);
+    
+    // Delete the local file after uploading to S3
+    await fs.promises.unlink(file.path);
+    
+    // Extract text from the buffer
+    const data = await pdfParse(fileBuffer);
+    console.log('Raw extracted text (upload):', data.text.substring(0, 500) + '...');
     const extractedText = formatExtractedText(data.text);
-    console.log('Formatted extracted text (upload):', extractedText.substring(0, 500) + '...'); // Log first 500 chars
+    console.log('Formatted extracted text (upload):', extractedText.substring(0, 500) + '...');
+    
     res.json({ 
       message: 'PDF uploaded and text extracted successfully', 
       extractedText: extractedText, 
-      pdfFileName: file.originalname 
+      pdfFileName: file.originalname,
+      s3Key: s3Key
     });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to extract PDF text' });
+    console.error('Error uploading file:', err);
+    res.status(500).json({ error: 'Failed to upload PDF' });
   }
 });
 
-// New endpoint to serve PDF files by filename
-app.get('/api/pdf/:filename', (req: Request, res: Response) => {
+// Update PDF serving endpoint to use S3
+app.get('/api/pdf/:filename', async (req: Request, res: Response) => {
   const filename = req.params.filename;
-  const filePath = `./uploads/${filename}`;
+  const s3Key = `pdfs/${filename}`;
 
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      console.error('Error reading PDF file:', err);
-      return res.status(404).json({ error: 'File not found' });
-    }
-
+  try {
+    const fileBuffer = await s3Service.getFile(s3Key);
     res.setHeader('Content-Type', 'application/pdf');
-    res.send(data);
-  });
+    res.send(fileBuffer);
+  } catch (err) {
+    console.error('Error serving PDF file:', err);
+    res.status(404).json({ error: 'File not found' });
+  }
+});
+
+// Update PDF listing endpoint to use S3
+app.get('/api/my-pdfs', async (req: Request, res: Response) => {
+  try {
+    const files = await s3Service.listFiles();
+    const pdfFiles = files.map(filename => ({
+      name: filename.replace('pdfs/', ''),
+      url: `/api/pdf/${filename.replace('pdfs/', '')}`,
+      uploadDate: new Date().toISOString() // Note: You might want to store and retrieve actual upload dates
+    }));
+    res.json(pdfFiles);
+  } catch (err) {
+    console.error('Error listing PDF files:', err);
+    res.status(500).json({ error: 'Failed to list PDF files' });
+  }
+});
+
+// Add a new endpoint to delete PDFs
+app.delete('/api/pdf/:filename', async (req: Request, res: Response) => {
+  const filename = req.params.filename;
+  const s3Key = `pdfs/${filename}`;
+
+  try {
+    await s3Service.deleteFile(s3Key);
+    res.json({ message: 'PDF deleted successfully' });
+  } catch (err) {
+    console.error('Error deleting PDF file:', err);
+    res.status(500).json({ error: 'Failed to delete PDF file' });
+  }
 });
 
 // New endpoint to serve pdf.worker.min.js
@@ -248,54 +295,6 @@ app.get('/pdfjs-worker.js', (req: Request, res: Response) => {
   const workerPath = path.join(__dirname, '../node_modules/pdfjs-dist/build/pdf.worker.min.mjs');
   res.setHeader('Content-Type', 'application/javascript');
   res.sendFile(workerPath);
-});
-
-// New endpoint to list uploaded PDF files
-app.get('/api/my-pdfs', (req: Request, res: Response) => {
-  const uploadDir = './uploads';
-  fs.readdir(uploadDir, async (err, files) => {
-    if (err) {
-      console.error('Error listing PDF files:', err);
-      if (err.code === 'ENOENT') {
-        return res.json([]);
-      }
-      return res.status(500).json({ error: 'Failed to list PDF files' });
-    }
-
-    const pdfFiles = files.filter(file => file.toLowerCase().endsWith('.pdf'));
-
-    // Get detailed info for each PDF including modification time
-    const filesWithDetails = await Promise.all(pdfFiles.map(async (fileName) => {
-      const filePath = path.join(uploadDir, fileName);
-      try {
-        const stats = await fs.promises.stat(filePath);
-        return { fileName, timestamp: stats.mtimeMs }; // mtimeMs is modification time in milliseconds
-      } catch (statErr) {
-        console.error(`Error getting stats for file ${fileName}:`, statErr);
-        return { fileName, timestamp: 0 }; // Fallback if stat fails
-      }
-    }));
-
-    // Sort by timestamp in descending order (latest first)
-    filesWithDetails.sort((a, b) => b.timestamp - a.timestamp);
-
-    res.json(filesWithDetails);
-  });
-});
-
-// New endpoint to delete a PDF file by filename
-app.delete('/api/my-pdfs/:filename', (req: Request, res: Response) => {
-  const filename = req.params.filename;
-  const filePath = `./uploads/${filename}`;
-
-  fs.unlink(filePath, (err) => {
-    if (err) {
-      console.error('Error deleting PDF file:', err);
-      return res.status(500).json({ error: 'Failed to delete PDF file' });
-    }
-
-    res.json({ message: 'PDF file deleted successfully' });
-  });
 });
 
 // New endpoint to get extracted text of a PDF file by filename

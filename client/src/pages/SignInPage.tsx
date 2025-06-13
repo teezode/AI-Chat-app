@@ -23,10 +23,10 @@ const SignInPage: React.FC = () => {
       });
 
       const token = response.data.token;
-      if (token) {
+    if (token) {
         login(token);
-        navigate('/');
-      }
+      navigate('/');
+    }
     } catch (err: any) {
       console.error('Login error:', err);
       if (err.response) {
