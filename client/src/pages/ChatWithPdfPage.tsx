@@ -130,10 +130,12 @@ const ChatWithPdfPage: React.FC = () => {
       setPageTexts(formattedPageSegments);
       setCurrentPageIndex(0); // Reset to first segment on new text
       setCurrentPreviewPage(1); // Reset PDF preview to page 1 on new text
+      console.log('PDFViewer: extractedText processed, pageTexts set to:', formattedPageSegments);
     } else {
        setPageTexts([]);
        setCurrentPageIndex(0);
        setCurrentPreviewPage(1); // Reset PDF preview to page 1
+       console.log('PDFViewer: extractedText is empty, pageTexts reset to empty array.');
     }
   }, [extractedText]); // Re-segment if extractedText changes
 
@@ -343,7 +345,7 @@ const ChatWithPdfPage: React.FC = () => {
     let targetParagraphIndex: number | null = null;
     let targetSentenceIndex: number | null = null;
 
-    // Get the paragraphs for the current PDF preview page
+    // Safely access currentPdfPageParagraphs
     const currentPdfPageParagraphs = pageTexts[currentPreviewPage - 1];
 
     if (!currentPdfPageParagraphs || currentPdfPageParagraphs.length === 0) {
@@ -354,20 +356,23 @@ const ChatWithPdfPage: React.FC = () => {
     if (paragraphIdx !== undefined && sentenceIdx !== undefined) {
       // Speak a specific sentence from the given paragraph index on the current page
       const paragraphData = currentPdfPageParagraphs[paragraphIdx];
-      if (paragraphData && paragraphData.sentences[sentenceIdx]) {
+      if (paragraphData && paragraphData.sentences && paragraphData.sentences[sentenceIdx] !== undefined) {
         textToSpeak = paragraphData.sentences[sentenceIdx];
         targetParagraphIndex = paragraphIdx;
         targetSentenceIndex = sentenceIdx;
+      } else {
+        console.warn(`Invalid paragraph or sentence index: paragraphIdx=${paragraphIdx}, sentenceIdx=${sentenceIdx}`);
+        return; // Exit if invalid index
       }
     } else {
       // Speak the entire currently selected paragraph (default behavior for main play button)
       const currentParagraph = currentPdfPageParagraphs[currentPageIndex];
-      if (currentParagraph) {
+      if (currentParagraph && currentParagraph.paragraph !== undefined) {
         textToSpeak = currentParagraph.paragraph;
         targetParagraphIndex = currentPageIndex; // Highlight the entire paragraph
         targetSentenceIndex = null;
       } else {
-        console.warn('No text available for the current selected paragraph.');
+        console.warn(`No text available for the current selected paragraph at index: ${currentPageIndex}`);
         return; // Exit if no paragraph is selected or available
       }
     }
@@ -472,8 +477,9 @@ const ChatWithPdfPage: React.FC = () => {
 
     setIsLoading(true);
     // Emit message via socket, including the text of the current selected paragraph for context
+    // Safely access currentPdfPageParagraphs and currentParagraphText
     const currentPdfPageParagraphs = pageTexts[currentPreviewPage - 1];
-    const currentParagraphText = currentPdfPageParagraphs && currentPdfPageParagraphs[currentPageIndex]
+    const currentParagraphText = (currentPdfPageParagraphs && currentPdfPageParagraphs[currentPageIndex] && currentPdfPageParagraphs[currentPageIndex].paragraph) 
       ? currentPdfPageParagraphs[currentPageIndex].paragraph
       : '';
 
