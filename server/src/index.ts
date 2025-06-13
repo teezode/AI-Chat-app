@@ -19,6 +19,13 @@ import passport from 'passport';
 import session from 'express-session';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('Created uploads directory at:', uploadsDir);
+}
+
 // Ensure you have a JWT_SECRET in your .env file
 const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_here'; // Replace with a strong, random secret
 
