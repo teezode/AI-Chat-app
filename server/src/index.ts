@@ -12,7 +12,7 @@ import multer, { Multer } from 'multer';
 import pdfParse from 'pdf-parse';
 import fs from 'fs';
 import path from 'path';
-import Datastore from 'nedb';
+import { MongoClient, Collection, Document, ObjectId } from 'mongodb';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import passport from 'passport';
@@ -26,16 +26,27 @@ const jwtSecret = process.env.JWT_SECRET || 'your_jwt_secret_here'; // Replace w
 const googleClientId = process.env.GOOGLE_CLIENT_ID || 'YOUR_GOOGLE_CLIENT_ID';
 const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET || 'YOUR_GOOGLE_CLIENT_SECRET';
 
-// Initialize the database with a writable path
-const usersDB = new Datastore({ filename: '/tmp/users.db', autoload: true });
+// MongoDB Connection URI
+const mongoURI = process.env.MONGO_URI || 'mongodb://localhost:27017/docuchat'; // Fallback to local MongoDB
 
-// Add an index to ensure emails are unique
-usersDB.ensureIndex({ fieldName: 'email', unique: true }, (err: Error | null) => {
-  if (err) console.error('Error ensuring email index unique:', err);
-});
+let usersCollection: Collection<Document>; // Declare usersCollection here
 
-// Add this at the top or in a types.d.ts file if needed:
-declare module 'pdf-parse';
+async function connectToMongo() {
+  try {
+    const client = new MongoClient(mongoURI);
+    await client.connect();
+    console.log('Connected to MongoDB');
+    const db = client.db('docuchat'); // Replace 'docuchat' with your database name in Atlas if different
+    usersCollection = db.collection('users'); // Get the users collection
+    // Ensure unique index on email for the new collection
+    usersCollection.createIndex({ email: 1 }, { unique: true }).catch(err => {
+      console.error('Error ensuring email index unique in MongoDB:', err);
+    });
+  } catch (error) {
+    console.error('Failed to connect to MongoDB:', error);
+    process.exit(1); // Exit if database connection fails
+  }
+}
 
 const app = express();
 const httpServer = createServer(app);
@@ -73,26 +84,16 @@ passport.use(new GoogleStrategy({
     // profile contains the user's Google profile information
     try {
       // Find or create the user in your database
-      usersDB.findOne({ googleId: profile.id }, async (err: Error | null, existingUser: any) => {
-        if (err) return done(err);
+      let existingUser = await usersCollection.findOne({ googleId: profile.id });
 
-        if (existingUser) {
-          // User already exists, return the user
-          return done(null, existingUser);
-        } else {
-          // New user, create an entry in the database
-          const newUser = {
-            googleId: profile.id,
-            email: profile.emails && profile.emails.length > 0 ? profile.emails[0].value : null,
-            name: profile.displayName,
-            // You might want to store other profile info like photos, etc.
-          };
-          usersDB.insert(newUser, (insertErr: Error | null, doc: any) => {
-            if (insertErr) return done(insertErr);
-            return done(null, doc);
-          });
-        }
-      });
+      if (!existingUser) {
+        // New Google user, create an entry in the database
+        const newUser = { googleId: profile.id, email: profile.emails && profile.emails.length > 0 ? profile.emails[0].value : null, name: profile.displayName };
+        const result = await usersCollection.insertOne(newUser);
+        existingUser = { ...newUser, _id: result.insertedId }; // Attach the new _id
+      }
+
+      return done(null, existingUser);
     } catch (error) {
       done(error as Error);
     }
@@ -106,11 +107,14 @@ passport.serializeUser((user: any, done: (error: any, id?: any) => void) => {
   done(null, user._id);
 });
 
-passport.deserializeUser((id: string, done: (error: any, user?: any) => void) => {
+passport.deserializeUser(async (id: string, done: (error: any, user?: any) => void) => {
   // Find the user by their database ID
-  usersDB.findOne({ _id: id }, (err: Error | null, user: any) => {
-    done(err, user);
-  });
+  try {
+    const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+    done(null, user);
+  } catch (err) {
+    done(err);
+  }
 });
 
 // Store chat messages in memory (replace with database in production)
@@ -318,30 +322,19 @@ app.post('/api/signup', async (req: Request, res: Response) => {
   }
 
   try {
-    // Check if user already exists
-    usersDB.findOne({ email: email }, async (err: Error | null, existingUser: any) => {
-      if (err) {
-        console.error('Error checking for existing user:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-      if (existingUser) {
-        return res.status(409).json({ error: 'User with this email already exists' });
-      }
+    // Check if user already exists in MongoDB
+    const existingUser = await usersCollection.findOne({ email: email });
+    if (existingUser) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
 
-      // Hash the password
-      const hashedPassword = await bcrypt.hash(password, 10); // 10 is the salt rounds
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(password, 10); // 10 is the salt rounds
 
-      // Insert new user into the database
-      const newUser = { email, password: hashedPassword };
-      usersDB.insert(newUser, (insertErr: Error | null, doc: any) => {
-        if (insertErr) {
-          console.error('Error inserting new user:', insertErr);
-          return res.status(500).json({ error: 'Failed to register user' });
-        }
-        // Exclude password hash from the response for security
-        res.status(201).json({ message: 'User registered successfully', user: { email: doc.email } });
-      });
-    });
+    // Insert new user into MongoDB
+    const result = await usersCollection.insertOne({ email, password: hashedPassword });
+    // Exclude password hash from the response for security
+    res.status(201).json({ message: 'User registered successfully', user: { email: email, _id: result.insertedId } });
   } catch (error) {
     console.error('Error in signup endpoint:', error);
     res.status(500).json({ error: 'Internal server error during signup' });
@@ -357,29 +350,24 @@ app.post('/api/signin', async (req: Request, res: Response) => {
   }
 
   try {
-    // Find the user by email
-    usersDB.findOne({ email: email }, async (err: Error | null, user: any) => {
-      if (err) {
-        console.error('Error finding user:', err);
-        return res.status(500).json({ error: 'Database error' });
-      }
-      if (!user) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
+    // Find the user by email in MongoDB
+    const user = await usersCollection.findOne({ email: email });
+    if (!user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
-      // Compare the provided password with the stored hashed password
-      const passwordMatch = await bcrypt.compare(password, user.password);
+    // Compare the provided password with the stored hashed password
+    const passwordMatch = await bcrypt.compare(password, user.password);
 
-      if (!passwordMatch) {
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
+    if (!passwordMatch) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
 
-      // Generate a JWT token
-      const token = jwt.sign({ userId: user._id, email: user.email }, jwtSecret, { expiresIn: '1h' }); // Token expires in 1 hour
+    // Generate a JWT token
+    const token = jwt.sign({ userId: user._id, email: user.email }, jwtSecret, { expiresIn: '1h' }); // Token expires in 1 hour
 
-      // Send the token back to the client
-      res.json({ message: 'Sign in successful', token: token });
-    });
+    // Send the token back to the client
+    res.json({ message: 'Sign in successful', token: token });
   } catch (error) {
     console.error('Error in signin endpoint:', error);
     res.status(500).json({ error: 'Internal server error during signin' });
@@ -393,18 +381,24 @@ app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'em
 // Route to handle the callback from Google
 app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/signin' }), // Redirect to signin on failure
-  (req: Request, res: Response) => {
+  async (req: Request, res: Response) => {
     // Successful authentication, generate a JWT token and redirect or respond
     // req.user contains the authenticated user from our database
-    const user = req.user as { _id: string, email?: string } | undefined;
-    if (user) {
-      const token = jwt.sign({ userId: user._id, email: user.email }, jwtSecret, { expiresIn: '1h' });
-      // Redirect the user back to the client application, passing the token
-      // We'll need a dedicated route or a way to handle this on the client side
-      // For now, let's redirect to the home page and the client will need to check for the token
+    const user = req.user as { _id: ObjectId, email?: string, googleId?: string, name?: string } | undefined;
+    if (user && user.googleId) { // Check for user and googleId from Passport profile
+      // Find or create the user in your MongoDB database based on googleId
+      let existingUser = await usersCollection.findOne({ googleId: user.googleId });
+
+      if (!existingUser) {
+        // New Google user, create an entry in the database
+        const newUser = { googleId: user.googleId, email: user.email, name: user.name };
+        const result = await usersCollection.insertOne(newUser);
+        existingUser = { ...newUser, _id: result.insertedId }; // Attach the new _id
+      }
+
+      const token = jwt.sign({ userId: existingUser._id, email: existingUser.email }, jwtSecret, { expiresIn: '1h' });
       res.redirect(`${process.env.CLIENT_URL}?token=${token}`);
     } else {
-      // This case should ideally not happen with successful authentication, but good to handle
       res.redirect(`${process.env.CLIENT_URL}/signin?error=auth_failed`);
     }
   }
@@ -482,11 +476,13 @@ io.on('connection', (socket: Socket) => {
   });
 });
 
-// Start the server
+// Start the server (now call connectToMongo before starting HTTP server)
 const PORT = process.env.PORT || 5000; // Use environment port or default to 5000
-httpServer.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-}).on('error', (err: Error) => {
-  console.error('Server failed to start:', err);
-  process.exit(1); // Exit with a failure code
+connectToMongo().then(() => {
+  httpServer.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  }).on('error', (err: Error) => {
+    console.error('Server failed to start:', err);
+    process.exit(1); // Exit with a failure code
+  });
 }); 

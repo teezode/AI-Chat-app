@@ -25,6 +25,7 @@
     "concurrently": "^8.2.2"
   },
   "dependencies": {
+    "mongodb": "^6.17.0",
     "multer": "^2.0.0",
     "pdfjs-dist": "^4.8.69"
   }
