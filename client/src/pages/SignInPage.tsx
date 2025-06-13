@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
+import { useAuth } from '../contexts/AuthContext';
 
 const SignInPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setError(null);
     setIsLoading(true);
 
     try {
@@ -20,12 +22,20 @@ const SignInPage: React.FC = () => {
         password
       });
 
-      if (response.data.token) {
-        localStorage.setItem('token', response.data.token);
-        navigate('/'); // Redirect to home page after successful login
+      const token = response.data.token;
+      if (token) {
+        login(token);
+        navigate('/');
       }
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to sign in. Please try again.');
+      console.error('Login error:', err);
+      if (err.response) {
+        setError(err.response.data.message || err.response.data.error || 'Failed to sign in. Please try again.');
+      } else if (err.request) {
+        setError('No response from server. Please check your internet connection or server status.');
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }

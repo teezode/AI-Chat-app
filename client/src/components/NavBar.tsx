@@ -1,30 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowUpOnSquareIcon, DocumentTextIcon } from '@heroicons/react/24/outline';
+import { useAuth } from '../contexts/AuthContext';
 
 const NavBar: React.FC = () => {
   const navigate = useNavigate();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-
-  useEffect(() => {
-    // Check authentication status on component mount and when localStorage changes
-    const token = localStorage.getItem('token');
-    setIsAuthenticated(!!token);
-
-    const handleStorageChange = () => {
-      setIsAuthenticated(!!localStorage.getItem('token'));
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-    };
-  }, []);
+  const { isAuthenticated, logout } = useAuth();
 
   const handleLogout = () => {
-    localStorage.removeItem('token');
-    setIsAuthenticated(false);
+    logout();
     navigate('/signin');
   };
 

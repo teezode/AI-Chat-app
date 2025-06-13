@@ -1,13 +1,13 @@
 import React from 'react';
 import { Navigate } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext'; // Import useAuth
 
 interface ProtectedRouteProps {
   element: React.ReactElement; // The component to render if authenticated
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ element }) => {
-  // Check if the user is authenticated (e.g., by checking for a token in localStorage)
-  const isAuthenticated = localStorage.getItem('token') !== null;
+  const { isAuthenticated } = useAuth(); // Use isAuthenticated from AuthContext
 
   if (isAuthenticated) {
     return element; // Render the component if authenticated
