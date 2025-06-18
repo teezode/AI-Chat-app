@@ -28,7 +28,7 @@ A modern AI chat application built with React, TypeScript, Node.js, and Express.
    npm install
    
    # Install frontend dependencies
-   cd client
+   cd client 
    npm install
    
    # Install backend dependencies
