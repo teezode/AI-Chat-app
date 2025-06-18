@@ -1,10 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { jwtDecode } from 'jwt-decode';
-
-interface User {
-  email: string;
-  // Add other user properties if available in your JWT token
-}
+import { User } from '../types';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -24,7 +20,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (token) {
       try {
         const decoded: any = jwtDecode(token);
-        return { email: decoded.email }; // Assuming your token has an email field
+        return { 
+          _id: decoded.userId || '',
+          email: decoded.email,
+          name: decoded.name,
+          bio: decoded.bio,
+          createdAt: decoded.createdAt,
+          lastLogin: decoded.lastLogin,
+          googleId: decoded.googleId
+        };
       } catch (error) {
         console.error("Failed to decode token from localStorage:", error);
         return null;
@@ -40,7 +44,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (token) {
         try {
           const decoded: any = jwtDecode(token);
-          setUser({ email: decoded.email });
+          setUser({ 
+            _id: decoded.userId || '',
+            email: decoded.email,
+            name: decoded.name,
+            bio: decoded.bio,
+            createdAt: decoded.createdAt,
+            lastLogin: decoded.lastLogin,
+            googleId: decoded.googleId
+          });
         } catch (error) {
           console.error("Failed to decode token on storage change:", error);
           setUser(null);
@@ -61,7 +73,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsAuthenticated(true);
     try {
       const decoded: any = jwtDecode(token);
-      setUser({ email: decoded.email });
+      setUser({ 
+        _id: decoded.userId || '',
+        email: decoded.email,
+        name: decoded.name,
+        bio: decoded.bio,
+        createdAt: decoded.createdAt,
+        lastLogin: decoded.lastLogin,
+        googleId: decoded.googleId
+      });
     } catch (error) {
       console.error("Failed to decode token on login:", error);
       setUser(null);

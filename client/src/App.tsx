@@ -5,8 +5,10 @@ import NavBar from './components/NavBar';
 import ChatWithPdfPage from './pages/ChatWithPdfPage';
 import HomePage from './pages/HomePage'; // Move HomePage import to the top
 import MyPDFsPage from './pages/MyPDFsPage';
+import SharedPDFsPage from './pages/SharedPDFsPage';
 import SignInPage from './pages/SignInPage';
 import SignUpPage from './pages/SignUpPage';
+import UserProfilePage from './pages/UserProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
 import BackgroundSlideshow from './components/BackgroundSlideshow';
 
@@ -30,7 +32,9 @@ const App: React.FC = () => {
         {/* Protected routes */}
         <Route path="/" element={<ProtectedRoute element={<HomePage />} />} />
         <Route path="/my-pdfs" element={<ProtectedRoute element={<MyPDFsPage />} />} />
+        <Route path="/shared-pdfs" element={<ProtectedRoute element={<SharedPDFsPage />} />} />
         <Route path="/chat-with-pdf" element={<ProtectedRoute element={<ChatWithPdfPage />} />} />
+        <Route path="/profile" element={<ProtectedRoute element={<UserProfilePage />} />} />
 
         {/* If the original /chat route is no longer needed, remove it */}
         {/* <Route path="/chat" element={<Chat />} /> */}
