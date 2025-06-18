@@ -32,6 +32,7 @@ const MyPDFsPage: React.FC = () => {
 
   // Filter PDFs based on search term and category
   const filteredPdfs = pdfFiles.filter(file => {
+    if (!file || !file.fileName) return false;
     const matchesSearch = file.fileName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesCategory = selectedCategory === 'All' || file.category === selectedCategory;
     return matchesSearch && matchesCategory;
@@ -95,12 +96,16 @@ const MyPDFsPage: React.FC = () => {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       const data: { fileName: string, timestamp: number, category?: string }[] = await response.json();
-      setPdfFiles(data);
+      // Filter out any undefined or malformed entries
+      const validData = data.filter(file => file && file.fileName);
+      setPdfFiles(validData);
 
-      // Generate thumbnails for all PDFs
+      // Generate thumbnails for all valid PDFs
       const thumbnails: {[key: string]: string | null} = {};
-      for (const file of data) {
-        thumbnails[file.fileName] = await generatePdfThumbnail(file.fileName);
+      for (const file of validData) {
+        if (file && file.fileName) {
+          thumbnails[file.fileName] = await generatePdfThumbnail(file.fileName);
+        }
       }
       setPdfThumbnails(thumbnails);
 
