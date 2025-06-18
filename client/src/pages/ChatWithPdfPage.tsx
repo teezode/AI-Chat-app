@@ -120,6 +120,9 @@ const ChatWithPdfPage: React.FC = () => {
   const [isVoiceChatActive, setIsVoiceChatActive] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+  // Add new state for tracking the highest sentence read
+  const [lastReadSentenceIndex, setLastReadSentenceIndex] = useState<number | null>(null);
+
   // Effect to segment the extracted text into pages (simple approach)
   useEffect(() => {
     if (extractedText) {
@@ -329,100 +332,103 @@ const ChatWithPdfPage: React.FC = () => {
     }
   }, [currentPreviewPage, pdfFileName, isSpeaking, currentPageIndex]); // Added currentPageIndex dependency
 
-  // Handle text-to-speech play button click
+  // Reset highlights when TTS stops or a new session starts
+  useEffect(() => {
+    if (!isSpeaking) {
+      setLastReadSentenceIndex(null);
+    }
+  }, [isSpeaking]);
+
+  // Update handleSpeakPage to read from a sentence through the rest of the paragraph
   const handleSpeakPage = async (paragraphIdx?: number, sentenceIdx?: number) => {
     if (isSpeaking || loadingSpeech) {
-      // If currently speaking or loading, stop it
-      window.speechSynthesis.cancel(); // Cancel any ongoing Web Speech API speech
+      window.speechSynthesis.cancel();
       setIsSpeaking(false);
       setSpeakingParagraphIndex(null);
       setSpeakingSentenceIndex(null);
+      setLastReadSentenceIndex(null);
       setLoadingSpeech(false);
       return;
     }
 
-    let textToSpeak = '';
+    let sentencesToSpeak: string[] = [];
     let targetParagraphIndex: number | null = null;
     let targetSentenceIndex: number | null = null;
 
-    // Safely access currentPdfPageParagraphs
     const currentPdfPageParagraphs = pageTexts[currentPreviewPage - 1];
-
-    if (!currentPdfPageParagraphs || currentPdfPageParagraphs.length === 0) {
-      console.warn('No paragraphs available for the current PDF preview page.');
-      return;
-    }
+    if (!currentPdfPageParagraphs || currentPdfPageParagraphs.length === 0) return;
 
     if (paragraphIdx !== undefined && sentenceIdx !== undefined) {
-      // Speak a specific sentence from the given paragraph index on the current page
       const paragraphData = currentPdfPageParagraphs[paragraphIdx];
       if (paragraphData && paragraphData.sentences && paragraphData.sentences[sentenceIdx] !== undefined) {
-        textToSpeak = paragraphData.sentences[sentenceIdx];
+        sentencesToSpeak = paragraphData.sentences.slice(sentenceIdx);
         targetParagraphIndex = paragraphIdx;
         targetSentenceIndex = sentenceIdx;
       } else {
-        console.warn(`Invalid paragraph or sentence index: paragraphIdx=${paragraphIdx}, sentenceIdx=${sentenceIdx}`);
-        return; // Exit if invalid index
+        return;
       }
     } else {
-      // Speak the entire currently selected paragraph (default behavior for main play button)
       const currentParagraph = currentPdfPageParagraphs[currentPageIndex];
-      if (currentParagraph && currentParagraph.paragraph !== undefined) {
-        textToSpeak = currentParagraph.paragraph;
-        targetParagraphIndex = currentPageIndex; // Highlight the entire paragraph
-        targetSentenceIndex = null;
+      if (currentParagraph && currentParagraph.sentences) {
+        sentencesToSpeak = currentParagraph.sentences;
+        targetParagraphIndex = currentPageIndex;
+        targetSentenceIndex = 0;
       } else {
-        console.warn(`No text available for the current selected paragraph at index: ${currentPageIndex}`);
-        return; // Exit if no paragraph is selected or available
+        return;
       }
     }
 
-    if (textToSpeak) {
+    if (sentencesToSpeak.length > 0) {
       setLoadingSpeech(true);
-      try {
-        const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/text-to-speech`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ text: textToSpeak, voice: 'alloy', speed: 1.0 }),
-        });
+      setLastReadSentenceIndex(null);
+      setSpeakingParagraphIndex(targetParagraphIndex);
+      setSpeakingSentenceIndex(targetSentenceIndex);
+      setIsSpeaking(true);
 
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
+      // Helper to play each sentence in sequence
+      const playSentences = async (sentences: string[], idx: number) => {
+        if (idx >= sentences.length) {
+          setIsSpeaking(false);
+          setSpeakingParagraphIndex(null);
+          setSpeakingSentenceIndex(null);
+          setLastReadSentenceIndex(null);
+          setLoadingSpeech(false);
+          return;
         }
-
-        const audioBlob = await response.blob();
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-
-        audio.onended = () => {
+        setSpeakingSentenceIndex((targetSentenceIndex ?? 0) + idx);
+        setLastReadSentenceIndex((targetSentenceIndex ?? 0) + idx - 1);
+        try {
+          const response = await fetch(`${process.env.REACT_APP_SERVER_URL}/api/text-to-speech`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: sentences[idx], voice: 'alloy', speed: 1.0 }),
+          });
+          if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+          const audioBlob = await response.blob();
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+          audio.onended = () => {
+            URL.revokeObjectURL(audioUrl);
+            playSentences(sentences, idx + 1);
+          };
+          audio.onerror = (e) => {
+            URL.revokeObjectURL(audioUrl);
+            setIsSpeaking(false);
+            setSpeakingParagraphIndex(null);
+            setSpeakingSentenceIndex(null);
+            setLastReadSentenceIndex(null);
+            setLoadingSpeech(false);
+          };
+          audio.play();
+        } catch (error) {
           setIsSpeaking(false);
           setSpeakingParagraphIndex(null);
           setSpeakingSentenceIndex(null);
+          setLastReadSentenceIndex(null);
           setLoadingSpeech(false);
-          URL.revokeObjectURL(audioUrl); // Clean up the object URL
-        };
-        audio.onerror = (e) => {
-          console.error('Audio playback error:', e);
-          setIsSpeaking(false);
-          setSpeakingParagraphIndex(null);
-          setSpeakingSentenceIndex(null);
-          setLoadingSpeech(false);
-          URL.revokeObjectURL(audioUrl); // Clean up the object URL
-        };
-
-        audio.play();
-        setIsSpeaking(true);
-        setSpeakingParagraphIndex(targetParagraphIndex);
-        setSpeakingSentenceIndex(targetSentenceIndex);
-      } catch (error) {
-        console.error('Error fetching OpenAI TTS audio:', error);
-        setIsSpeaking(false);
-        setSpeakingParagraphIndex(null);
-        setSpeakingSentenceIndex(null);
-        setLoadingSpeech(false);
-      }
+        }
+      };
+      playSentences(sentencesToSpeak, 0);
     }
   };
 
@@ -728,11 +734,18 @@ const ChatWithPdfPage: React.FC = () => {
                           <p key={sentenceIndex} className="leading-relaxed">
                             <span
                               onClick={() => handleSentenceClick(currentPageIndex, sentenceIndex, sentence)}
-                              className={`cursor-pointer ${
-                                speakingParagraphIndex === currentPageIndex && speakingSentenceIndex === sentenceIndex
-                                  ? 'bg-yellow-300' // Highlight color
-                                  : ''
-                              }`}
+                              className={`cursor-pointer px-1 rounded transition-colors
+                                ${
+                                  speakingParagraphIndex === currentPageIndex &&
+                                  lastReadSentenceIndex !== null &&
+                                  sentenceIndex <= lastReadSentenceIndex
+                                    ? 'bg-purple-100' // Soft lavender highlight
+                                    : speakingParagraphIndex === currentPageIndex &&
+                                      speakingSentenceIndex === sentenceIndex
+                                    ? 'bg-yellow-300' // Currently reading
+                                    : ''
+                                }
+                              `}
                             >
                               {sentence}{' '}
                             </span>
