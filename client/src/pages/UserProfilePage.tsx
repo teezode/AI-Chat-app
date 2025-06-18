@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { User } from '../types';
+import { toast } from 'react-toastify';
 
 const UserProfilePage: React.FC = () => {
   const { user, logout } = useAuth();
@@ -47,11 +48,14 @@ const UserProfilePage: React.FC = () => {
 
       if (response.ok) {
         setIsEditing(false);
+        toast.success('Profile updated successfully!');
         // You might want to update the user context here
       } else {
+        toast.error('Failed to update profile. Please try again.');
         console.error('Failed to update profile');
       }
     } catch (error) {
+      toast.error('Error updating profile. Please try again.');
       console.error('Error updating profile:', error);
     }
   };

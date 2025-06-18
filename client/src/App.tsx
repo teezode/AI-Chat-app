@@ -11,6 +11,8 @@ import SignUpPage from './pages/SignUpPage';
 import UserProfilePage from './pages/UserProfilePage';
 import ProtectedRoute from './components/ProtectedRoute';
 import BackgroundSlideshow from './components/BackgroundSlideshow';
+import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 // Placeholder component for the My PDFs page
 // const MyPDFsPage: React.FC = () => <div>My PDFs Page (Placeholder)</div>;
@@ -21,6 +23,7 @@ import BackgroundSlideshow from './components/BackgroundSlideshow';
 const App: React.FC = () => {
   return (
     <Router>
+      <ToastContainer position="top-right" autoClose={3000} aria-label="Toast Notifications" />
       <BackgroundSlideshow />
       <NavBar />
       
