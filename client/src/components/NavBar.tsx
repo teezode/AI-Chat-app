@@ -51,15 +51,6 @@ const NavBar: React.FC = () => {
               </svg>
               Shared PDFs
             </Link>
-            <Link
-              to="/profile"
-              className="flex items-center px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full transition-colors"
-            >
-              <svg className="h-5 w-5 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              Profile
-            </Link>
 
             {/* User Profile Section */}
             <div className="relative">
@@ -79,9 +70,45 @@ const NavBar: React.FC = () => {
 
               {/* Dropdown Content */}
               {showDropdown && (
-                <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl py-2 z-10 border border-gray-200">
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl py-2 z-20 border border-gray-200 ring-1 ring-blue-200">
+                  <div className="px-4 py-4 flex items-center gap-3 border-b border-gray-100">
+                    {/* Avatar/Initials */}
+                    <div className="h-10 w-10 rounded-full bg-blue-500 flex items-center justify-center text-white text-lg font-bold">
+                      {user?.name
+                        ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0,2)
+                        : userEmail.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex flex-col">
+                      {/* User Name */}
+                      {user?.name && (
+                        <span className="font-semibold text-gray-900 leading-tight">{user.name}</span>
+                      )}
+                      {/* User Email */}
+                      <span className="text-sm text-gray-700">{userEmail}</span>
+                    </div>
+                  </div>
+                  {/* Links */}
+                  <Link
+                    to="/profile"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-blue-600"
+                    onClick={() => setShowDropdown(false)}
+                  >
+                    Profile
+                  </Link>
+                  <Link
+                    to="/settings"
+                    className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-blue-600"
+                    onClick={() => setShowDropdown(false)}
+                  >
+                    Settings
+                  </Link>
+                  <div className="border-t border-gray-200 my-2"></div>
+                  {/* Notifications/Recent Activity Placeholder */}
                   <div className="px-4 py-2">
-                    <p className="text-sm font-semibold text-gray-800">{userEmail}</p>
+                    <p className="text-xs font-semibold text-gray-500 mb-1">Recent Activity</p>
+                    <ul className="text-xs text-gray-600 space-y-1">
+                      <li>No recent activity</li>
+                    </ul>
                   </div>
                   <div className="border-t border-gray-200 my-2"></div>
                   <div className="px-4 py-2">
